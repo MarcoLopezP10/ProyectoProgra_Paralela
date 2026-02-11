@@ -1,16 +1,14 @@
-from abc import ABC,abstractmethod
 import numpy as np
 
-class BoundsHandler(ABC):
-    @abstractmethod
-    def apply(self,position,velocity):
-        pass
+class ClampBounds:
+    def __init__(self, lower, upper):
+        self.lower = np.array(lower)
+        self.upper = np.array(upper)
 
-class ClampBounds(BoundsHandler):
-    def __init__(self,bounds):
-        self.min,self.max=bounds
-    
-    def apply(self,position,velocity):
-        position =np.clip(position,self,min,self.max) #No tocamos la velocidad
-        return position,velocity 
-    
+    def apply(self, position, velocity):
+        new_position = np.minimum(
+            np.maximum(position, self.lower),
+            self.upper
+        )
+        return new_position, velocity
+
