@@ -1,10 +1,12 @@
-
 import numpy as np
 from core.swarm import Swarm
 from core.pso import PSO
 from core.evaluator import SequentialEvaluator
 from core.bounds import ClampBounds
 from objectives.sphere import sphere
+from objectives.ackely import ackley
+from objectives.rosenbrock import rosenbrock
+from objectives.rastringin import rastrigin
 
 def main():
     seed = 42
@@ -14,16 +16,19 @@ def main():
     bounds = ([-5]*dim, [5]*dim)
 
     swarm = Swarm(
-        n_particles=30,
+        n_particles=3000,
         dim=dim,
         bounds=bounds,
         rng=rng
     )
 
-    evaluator = SequentialEvaluator(sphere)
+    
     bounds_handler = ClampBounds(bounds[0], bounds[1])
 
-    pso = PSO(
+    for objective in [sphere, ackley, rosenbrock, rastrigin]:
+        evaluator = SequentialEvaluator(objective)
+    
+        pso = PSO(
         swarm=swarm,
         evaluator=evaluator,
         bounds_handler=bounds_handler,
@@ -32,13 +37,14 @@ def main():
         c2=1.5,
         max_iters=100,
         rng=rng
-    )
+        )
 
-    best_pos, best_fit, elapsed = pso.run()
+        best_pos, best_fit, elapsed = pso.run()
 
-    print("Best position:", best_pos)
-    print("Best fitness:", best_fit)
-    print("Elapsed time:", elapsed)
+        print("\nObjective:", objective.__name__)
+        print("Best position:", best_pos)
+        print("Best fitness:", best_fit)
+        print("Elapsed time:", elapsed)
 
 if __name__ == "__main__":
     main()
