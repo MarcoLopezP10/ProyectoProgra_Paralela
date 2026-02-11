@@ -1,27 +1,22 @@
 import numpy as np
 
 class Particle:
-    def __init__(self,dim,bounds,rng): #Estado Propio, dimension, limites y generador aleatorio
-        self.position=rng.uniform(bounds[0],bounds[1],size=dim)
-        self.velocity=rng.uniform(-(bounds[1]-bounds[0]), (bounds[1]-bounds[0]),size=dim) 
-        self.best_position=self.position.copy()
-        self.best_fitness=np.inf
-    
-    def update_velocity(self,global_best_position,w,c1,c2,rng): #Actualizacion de velocidad(ecuacion PSO)
-        #Coeficientes aleatorios independientes
-        r1=rng.random(self.position.shape)
-        r2=rng.random(self.position.shape)
+    def __init__(self, dim, bounds, rng):
+        self.position = rng.uniform(bounds[0], bounds[1], size=dim)
+        self.velocity = rng.uniform(-1, 1, size=dim)
+        self.best_position = self.position.copy()
+        self.best_fitness = np.inf
 
-        #Parte cognitiva y Social(enjambre)
-        cognitive=c1*r1*(self.best_position - self.position)
-        social=c2*r2*(global_best_position - self.position)
+    def update_velocity(self, gbest, w, c1, c2, rng):
+        r1 = rng.random(len(self.position))
+        r2 = rng.random(len(self.position))
+        cognitive = c1 * r1 * (self.best_position - self.position)
+        social = c2 * r2 * (gbest - self.position)
+        self.velocity = w * self.velocity + cognitive + social
 
-        #Formula velocidad
-        self.velocity=w*self.velocity+cognitive+social
-    
     def update_position(self):
-        self.position=self.position + self.velocity
-        
+        self.position = self.position + self.velocity
+
 
 
 
