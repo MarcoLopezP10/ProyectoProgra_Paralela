@@ -1,9 +1,11 @@
 from abc import ABC, abstractmethod
 
+
 class FitnessEvaluator(ABC):
     @abstractmethod
     def evaluate(self, positions):
         pass
+
 
 class SequentialEvaluator(FitnessEvaluator):
     def __init__(self, objective_fn):
