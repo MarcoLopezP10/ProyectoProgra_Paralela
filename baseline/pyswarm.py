@@ -10,21 +10,17 @@ def run_pyswarm_baseline(
     n_particles: int,
     max_iters: int
 ) -> Tuple[np.ndarray, float, float, int]:
-    """
-    Ejecuta el PSO de pyswarm con configuración comparable a tu implementación.
+    """Run PySwarm's PSO with a configuration comparable to our implementation.
 
-    Args:
-        objective_function: función objetivo.
-        bounds: tupla (lower_bounds, upper_bounds).
-        n_particles: número de partículas.
-        max_iters: número máximo de iteraciones.
+Args:
+    objective_function: Objective function to minimize.
+    bounds: (lower, upper) bounds per dimension.
+    n_particles: Swarm size.
+    max_iters: Maximum number of iterations.
 
-    Returns:
-        best_position
-        best_fitness
-        elapsed_time
-        iterations (max_iters, ya que pyswarm no devuelve las reales)
-    """
+Returns:
+    best_position, best_fitness, elapsed_time_seconds, iterations
+"""
 
     lower_bounds, upper_bounds = bounds
 
