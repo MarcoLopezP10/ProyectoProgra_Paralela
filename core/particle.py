@@ -1,51 +1,81 @@
+from __future__ import annotations
+
 import numpy as np
-from numpy.typing import NDArray
+
 
 class Particle:
     """
-    Class representing a particle in the PSO swarm.
+    Single particle of the swarm.
+
+    Each particle stores:
+    - current position
+    - current velocity
+    - personal best position
+    - personal best fitness
     """
 
-    def __init__(self, dim: int, bounds: tuple[list[float], list[float]], rng: np.random.Generator):
+    def __init__(self, dim, bounds, rng):
         """
-        Initialize a particle.
+        Initialize a particle inside the search space.
 
-        Args:
-            dim (int): Dimension of the search space.
-            bounds (tuple[list, list]): Lower and upper bounds for each dimension.
-            rng (np.random.Generator): Random number generator.
+        Parameters
+        ----------
+        dim : int
+            Problem dimension.
+        bounds : tuple
+            Tuple (lower, upper) with one bound per dimension.
+        rng : np.random.Generator
+            Random generator for reproducibility.
         """
-        self.dim: int = dim
-        self.bounds: tuple[np.ndarray, np.ndarray] = (np.array(bounds[0]), np.array(bounds[1]))
-        self.rng: np.random.Generator = rng
+        self.dim = dim
+        self.bounds = bounds
+        self.rng = rng
 
-        low, high = self.bounds
-        self.position: NDArray[np.float_] = rng.uniform(low, high, dim)
-        self.velocity: NDArray[np.float_] = rng.uniform(-(high - low), (high - low))
+        low, high = bounds
+        self.low = np.array(low, dtype=float)
+        self.high = np.array(high, dtype=float)
 
-        self.best_position: NDArray[np.float_] = self.position.copy()
-        self.best_fitness: float = np.inf
+        # Random initial position inside the allowed search box.
+        self.position = rng.uniform(self.low, self.high, dim)
 
-    def update_velocity(self, best_position: NDArray[np.float_], w: float, c1: float, c2: float) -> None:
+        # Use a moderate initial velocity instead of the full search range.
+        # This keeps the algorithm much more stable in dimensions such as 30.
+        search_range = self.high - self.low
+        self.vmax = 0.2 * search_range
+        self.velocity = rng.uniform(-self.vmax, self.vmax, dim)
+
+        # Initialize personal best with the starting point.
+        self.best_position = self.position.copy()
+        self.best_fitness = float("inf")
+
+    def update_velocity(self, global_best_position, w, c1, c2):
         """
-        Update the velocity of the particle.
+        Update particle velocity using the standard PSO equation.
 
-        Args:
-            best_position (NDArray): The reference best position (global or local).
-            w (float): Inertia weight.
-            c1 (float): Cognitive coefficient.
-            c2 (float): Social coefficient.
+        Parameters
+        ----------
+        global_best_position : np.ndarray
+            Best position known by the swarm.
+        w : float
+            Inertia coefficient.
+        c1 : float
+            Cognitive coefficient.
+        c2 : float
+            Social coefficient.
         """
         r1 = self.rng.random(self.dim)
         r2 = self.rng.random(self.dim)
 
         cognitive = c1 * r1 * (self.best_position - self.position)
-        social = c2 * r2 * (best_position - self.position)
+        social = c2 * r2 * (global_best_position - self.position)
 
         self.velocity = w * self.velocity + cognitive + social
 
-    def update_position(self) -> None:
+        # Limit the step size to avoid unstable jumps.
+        self.velocity = np.clip(self.velocity, -self.vmax, self.vmax)
+
+    def update_position(self):
         """
-        Update the particle's position based on its velocity.
+        Move the particle according to its current velocity.
         """
-        self.position += self.velocity
+        self.position = self.position + self.velocity
