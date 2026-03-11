@@ -1,27 +1,57 @@
+"""utils.logger
+
+Project logger configuration utilities.
+"""
+
+from __future__ import annotations
+
 import logging
 import os
 
-def setup_logger(log_dir: str = "logs", log_file: str = "pso.log") -> logging.Logger:
+#logg en la misma linea los nombres
+def setup_logger(
+    name: str = "pso_logger",
+    log_dir: str = "logs",
+    log_file: str = "pso.log",
+) -> logging.Logger:
     """
-    Setup a logger to save PSO and grid search logs.
+    Create and configure a logger for the project.
 
-    Args:
-        log_dir (str): Directory to save logs.
-        log_file (str): Log file name.
+    The logger writes only to file, not to console, so terminal output
+    can stay clean and be managed separately.
 
-    Returns:
-        Logger object.
+    Parameters
+    ----------
+    name : str, default="pso_logger"
+        Logger name.
+    log_dir : str, default="logs"
+        Directory where the log file will be stored.
+    log_file : str, default="pso.log"
+        Log filename.
+
+    Returns
+    -------
+    logging.Logger
+        Configured logger.
     """
-    os.makedirs(log_dir, exist_ok=True)
-    logger = logging.getLogger("PSO")
+    logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
 
-    fh = logging.FileHandler(os.path.join(log_dir, log_file))
-    fh.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    fh.setFormatter(formatter)
+    # Prevent duplicated handlers if this function is called multiple times.
+    if logger.handlers:
+        return logger
 
-    if not logger.hasHandlers():
-        logger.addHandler(fh)
+    os.makedirs(log_dir, exist_ok=True)
+    full_log_path = os.path.join(log_dir, log_file)
+
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
+    file_handler = logging.FileHandler(full_log_path)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
 
     return logger
