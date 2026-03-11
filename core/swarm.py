@@ -19,10 +19,10 @@ class Swarm:
             rng (np.random.Generator): Random number generator.
         """
         self.particles: List[Particle] = [Particle(dim, bounds, rng) for _ in range(n_particles)]
-        self.global_best_position: NDArray[np.float_] | None = None
+        self.global_best_position: NDArray[np.float64] | None = None
         self.global_best_fitness: float = np.inf
 
-    def get_positions(self) -> List[NDArray[np.float_]]:
+    def get_positions(self) -> List[NDArray[np.float64]]:
         """
         Get current positions of all particles.
 
@@ -31,7 +31,7 @@ class Swarm:
         """
         return [p.position for p in self.particles]
 
-    def update_global_best(self, positions: List[NDArray[np.float_]], fitness_values: List[float]) -> None:
+    def update_global_best(self, positions: List[NDArray[np.float64]], fitness_values: List[float]) -> None:
         """
         Update each particle's best and the swarm's global best.
 
@@ -47,3 +47,4 @@ class Swarm:
             if fit < self.global_best_fitness:
                 self.global_best_fitness = fit
                 self.global_best_position = pos.copy()
+
