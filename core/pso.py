@@ -5,7 +5,7 @@ from typing import Optional
 from .swarm import Swarm
 from options.topology import Topology
 from options.bounds import ClampBounds
-from options.evaluator import SequentialEvaluator
+from options.evaluator import FitnessEvaluator
 import logging
 
 
@@ -17,7 +17,7 @@ class PSO:
     def __init__(
         self,
         swarm: Swarm,
-        evaluator: SequentialEvaluator,
+        evaluator: FitnessEvaluator,
         bounds_handler: ClampBounds,
         topology: Topology,
         w: float,
@@ -40,12 +40,12 @@ class PSO:
         self.tol = tol
         self.patience = patience
 
-        # 🔥 Convergence history
+        # Convergence history
         self.history: list[float] = []
 
         self.logger = logger
 
-    def run(self) -> tuple[NDArray[np.float_], float, float, int]:
+    def run(self) -> tuple[NDArray[np.float64], float, float, int]:
         """
         Run the PSO optimization.
 
@@ -67,10 +67,10 @@ class PSO:
 
             self.swarm.update_global_best(positions, fitness)
 
-            # 🔥 Store convergence history
+            # Store convergence history
             self.history.append(self.swarm.global_best_fitness)
 
-            # ---- Early stopping ----
+            # Early stopping 
             improvement = abs(prev_best - self.swarm.global_best_fitness)
 
             if improvement < self.tol:
@@ -83,7 +83,7 @@ class PSO:
 
             prev_best = self.swarm.global_best_fitness
 
-            # ---- Update particles ----
+            #  Update particles 
             for p in self.swarm.particles:
                 best_pos = self.topology.get_best_position(p, self.swarm)
 
@@ -93,9 +93,10 @@ class PSO:
                 p.position, p.velocity = self.bounds_handler.apply(
                     p.position, p.velocity
                 )
-
+    
         elapsed = time.perf_counter() - start
 
+        # Logging for results and iterations
         if self.logger:
             self.logger.info(
                 f"PSO finished: Best fitness={self.swarm.global_best_fitness}, "
@@ -108,5 +109,3 @@ class PSO:
             elapsed,
             len(self.history),
         )
-
-    
