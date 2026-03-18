@@ -1,0 +1,79 @@
+{
+  "objective": "sphere",
+  "dim": 10,
+  "bounds_lower": [
+    -5.0,
+    -5.0,
+    -5.0,
+    -5.0,
+    -5.0,
+    -5.0,
+    -5.0,
+    -5.0,
+    -5.0,
+    -5.0
+  ],
+  "bounds_upper": [
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0
+  ],
+  "seed": 42,
+  "hyperparam_source": "fixed_config",
+  "w": 0.7,
+  "c1": 1.5,
+  "c2": 1.5,
+  "n_particles": 80,
+  "max_iters": 500,
+  "tol": 1e-10,
+  "patience": 50,
+  "v0": {
+    "best_fitness": 1.2954447380778904e-13,
+    "iterations": 187,
+    "timing": {
+      "total_s": 0.8450476599973626,
+      "eval_s": 0.1365673201653408,
+      "update_s": 0.6871410458988976,
+      "overhead_s": 0.02133929393312428,
+      "pct_eval": 16.160901524272255,
+      "pct_update": 81.31388067520855
+    },
+    "max_workers": null
+  },
+  "v1": {
+    "best_fitness": 1.2954447380778904e-13,
+    "iterations": 187,
+    "timing": {
+      "total_s": 2.231489273995976,
+      "eval_s": 1.4577067328500561,
+      "update_s": 0.746846132009523,
+      "overhead_s": 0.026936409136396833,
+      "pct_eval": 65.3243889557089,
+      "pct_update": 33.46850646842364
+    },
+    "max_workers": null
+  },
+  "baseline": {
+    "best_fitness": 2.3212237154447402e-06,
+    "iterations": 500,
+    "timing": {
+      "total_s": 0.2963719367980957,
+      "eval_s": 0.0,
+      "update_s": 0.0,
+      "overhead_s": 0.0,
+      "pct_eval": 0.0,
+      "pct_update": 0.0
+    },
+    "max_workers": null
+  },
+  "winner": "V0 Sequential",
+  "timestamp_utc": "2026-03-18T10:49:19.679045+00:00",
+  "notes": "V1 uses ThreadPoolExecutor. For small NumPy objectives the GIL limits gains and thread overhead dominates. Speedup expected only for I/O-bound or large-compute kernels."
+}
