@@ -1,3 +1,4 @@
+# AUTHOR - MARCO LOPEZ PRIETO
 # PSO — Particle Swarm Optimization
 
 A complete, maintainable Python implementation of Particle Swarm Optimization (PSO) following software engineering best practices, used as a testbed for comparing different parallel and concurrent evaluation strategies.
@@ -145,6 +146,27 @@ for p in self.swarm.particles:
 
 `PSO` never imports `SequentialEvaluator`, `ThreadPoolEvaluator`, `ClampBounds`, or `GlobalBestTopology` directly. It only knows the abstract interfaces.
 
+### Why this architecture is useful
+
+This structure was chosen to keep the implementation maintainable and to make
+version-to-version comparisons fair:
+
+- The PSO core loop is isolated in `core/pso.py`, so algorithmic behaviour does
+  not change when switching from V0 to V1.
+- Evaluation strategy is encapsulated behind `FitnessEvaluator`, which makes it
+  possible to compare sequential and threaded execution under the same search
+  conditions.
+- Boundary handling is isolated in `BoundsPolicy`, which keeps the decision
+  about how to deal with infeasible particles explicit and easy to document.
+- Topology is isolated in `Topology`, which keeps the implementation extensible
+  even though this project currently uses only the global-best variant.
+
+This separation is important for software engineering quality, but also for
+experimental validity: if V0 and V1 use the same seed, same swarm size, same
+coefficients, same bounds and same topology, then any observed difference can
+be attributed to the evaluation strategy rather than to hidden algorithmic
+changes.
+
 ---
 
 ## 4. Installation
@@ -159,6 +181,10 @@ pip install numpy matplotlib prettytable pyswarm pytest pillow
 ```
 
 Python 3.10+ recommended.
+
+If you want to run the test suite and all optional scripts, install every listed
+dependency. Some modules such as `prettytable`, `matplotlib`, `pyswarm`,
+`pillow`, or `pytest` are used only by specific parts of the project.
 
 ---
 
@@ -197,9 +223,84 @@ Python 3.10+ recommended.
 | `--n-particles` | `80` | Swarm size |
 | `--max-iters` | `500` | Maximum iterations |
 | `--patience` | `30` | Early-stop patience |
+| `--vmax-ratio` | auto | Velocity cap as a fraction of the search range |
 | `--grid-search` | off | Enable hyperparameter grid search |
 | `--workers` | auto | Max threads for V1 ThreadPoolExecutor |
 | `--no-save` | off | Skip saving files to disk |
+
+If `--w`, `--c1`, `--c2`, `--n-particles`, `--max-iters`, `--patience`,
+`--tol`, or `--vmax-ratio` are omitted, the project can resolve conservative
+defaults automatically based on the objective function and dimension.
+
+### CLI arguments for `run_benchmarks.py`
+
+| Argument | Default | Description |
+|---|---|---|
+| `--objective` | all 4 | Function(s) to benchmark |
+| `--dims` | `2 10 30` | Dimensions to evaluate |
+| `--seeds` | `42 7` | Seeds to test |
+| `--bounds-lo` | `-5.0` | Lower bound |
+| `--bounds-hi` | `5.0` | Upper bound |
+| `--n-particles` | auto | Swarm size override |
+| `--max-iters` | auto | Iteration budget override |
+| `--tol` | auto | Convergence tolerance override |
+| `--patience` | auto | Early-stop patience override |
+| `--vmax-ratio` | auto | Velocity cap override |
+| `--workers` | auto | Max threads for V1 |
+| `--grid-search` | off | Tune hyperparameters before each run |
+| `--summary-csv` | `results/benchmark_summary.csv` | Aggregated CSV output |
+
+### CLI arguments for `run_grid_search.py`
+
+| Argument | Default | Description |
+|---|---|---|
+| `--objective` | all 4 | Function(s) to optimise during search |
+| `--dims` | `2 10 30` | Dimensions to search |
+| `--seeds` | `0 1 7 42 123` | Seeds averaged per combination |
+| `--w` | auto | Inertia values to test |
+| `--c1` | auto | Cognitive values to test |
+| `--c2` | auto | Social values to test |
+| `--n-particles` | auto | Swarm sizes to test |
+| `--max-iters` | `150` | Iteration budget per combination |
+| `--tol` | `1e-8` | Tolerance used inside search runs |
+| `--patience` | `40` | Early-stop patience inside search runs |
+| `--vmax-ratio` | auto | Velocity cap override |
+| `--out-dir` | `results/grid_search` | CSV output directory |
+| `--verbose` | off | Log every combination/seed |
+
+When no explicit search grid is provided, the script uses a dimension-aware
+search space chosen for each objective function.
+
+### CLI arguments for `make_viz.py`
+
+| Argument | Default | Description |
+|---|---|---|
+| `--objective` | all 4 | Function(s) to animate |
+| `--seed` | `42` | Random seed |
+| `--n-particles` | `40` | Swarm size for the animation run |
+| `--max-iters` | `150` | Iteration budget |
+| `--bounds-lo` | `-5.0` | Lower bound |
+| `--bounds-hi` | `5.0` | Upper bound |
+| `--w` | `0.7` | Inertia weight |
+| `--c1` | `1.5` | Cognitive coefficient |
+| `--c2` | `1.5` | Social coefficient |
+| `--vmax-ratio` | `0.2` | Velocity cap as a fraction of range |
+| `--fps` | `6` | Frames per second |
+| `--format` | `gif` | Output format (`gif` or `mp4`) |
+| `--resolution` | `120` | Contour-grid resolution |
+| `--max-frames` | none | Optional frame cap |
+
+### Recommended way to compare V0 and V1
+
+For a fair comparison between versions:
+
+1. Use the same objective function, dimension, seed, bounds and hyperparameters.
+2. Keep the topology and bounds policy fixed.
+3. Compare both solution quality (`best_fitness`) and runtime (`time_s`).
+4. Use multiple seeds when drawing conclusions about performance.
+
+This project is explicitly designed so that V0 and V1 share the same PSO logic
+and differ only in the fitness evaluation strategy.
 
 ---
 
@@ -217,6 +318,83 @@ evaluator = SequentialEvaluator(sphere)
 Simple Python list comprehension. One particle evaluated at a time. This is the baseline against which all other versions are measured.
 
 ### V1 — Threading (`ThreadPoolExecutor`)
+
+V1 keeps the same swarm dynamics, coefficients, stopping criteria and bounds
+policy as V0. The only change is that particle fitness values are evaluated via
+`ThreadPoolExecutor`.
+
+Important trade-off:
+
+- For small NumPy-based objective functions, V1 may be slower than V0 because
+  thread scheduling overhead and the Python GIL can dominate the runtime.
+- For heavier or more latency-dominated objective functions, the same design can
+  still be useful as a clean concurrent baseline.
+
+The project therefore uses V1 as a concurrency comparison point, not as a
+guaranteed speedup.
+
+---
+
+## 6.1 Design Decisions And Trade-Offs
+
+### Boundary strategy
+
+The project uses `ClampBounds` as the explicit bounds-enforcement strategy.
+Whenever a particle exits the box constraints, its position is clipped back into
+the search space and the corresponding velocity component is reset to zero.
+
+Why this was chosen:
+
+- It is simple and predictable.
+- It avoids unstable bouncing near the boundary.
+- It works reliably across all tested dimensions.
+
+Trade-off:
+
+- It can introduce a mild bias near the borders of the search space.
+- Alternative strategies such as reflection or penalty could be explored in
+  future versions.
+
+### Topology choice
+
+The current implementation uses `GlobalBestTopology`.
+
+Why this was chosen:
+
+- It is the canonical PSO variant.
+- It converges quickly on many standard benchmark functions.
+- It keeps the implementation simple for the first stage of the project.
+
+Trade-off:
+
+- It may increase the risk of premature convergence on highly multimodal
+  landscapes compared to local-best topologies.
+
+### Hyperparameter strategy
+
+The project supports both fixed hyperparameters and grid search. The quick
+in-run tuner uses a smaller search space, while the dedicated grid-search script
+ can be used for broader offline exploration.
+
+Trade-off:
+
+- Better hyperparameter selection usually improves final fitness.
+- It also increases total experimental time, especially in higher dimensions.
+
+### Concurrency strategy
+
+V1 uses threads instead of changing the PSO logic itself.
+
+Why this was chosen:
+
+- It preserves fairness of comparison with V0.
+- It demonstrates a clean separation between algorithm and evaluation policy.
+- It keeps the system extensible for future versions.
+
+Trade-off:
+
+- It improves code extensibility more reliably than raw runtime in lightweight
+  numerical benchmarks.
 
 ```python
 from parallel.evaluator import ThreadPoolEvaluator
@@ -256,6 +434,17 @@ Eliminates all Python loops. Positions, velocities, and fitness evaluation opera
 ---
 
 ## 7. Experimental Results
+
+The key evaluation criteria in this project are:
+
+- Best fitness reached by each method.
+- Number of iterations executed.
+- Total runtime.
+- Internal timing breakdown (`eval`, `update`, and residual overhead).
+
+When interpreting results, lower fitness is better. Runtime should always be
+interpreted together with solution quality: a faster method is not necessarily
+better if it converges to a clearly worse solution.
 
 All experiments run on Apple MacBook Air M2, macOS, Python 3.11/3.12.
 Default hyperparameters: `w=0.7, c1=1.5, c2=1.5, n_particles=80, max_iters=500, seed=42`.
@@ -323,6 +512,35 @@ Grid search: `w ∈ {0.4,0.6,0.8}`, `c1 ∈ {1.2,1.5,1.8}`, `c2 ∈ {1.2,1.5,1.8
 
 ## 8. Design Decisions & Trade-offs
 
+The most important engineering and experimental trade-offs of the project are:
+
+- Strong modularity vs slightly more boilerplate: abstract interfaces make the
+  code easier to extend and compare, but require more structure than a single
+  monolithic script.
+- Better fitness vs longer execution time: larger swarms, longer patience, and
+  more robust grid search often improve the solution but increase cost.
+- Concurrency vs actual speedup: V1 improves modularity and demonstrates a
+  concurrent strategy, but does not necessarily outperform V0 on small
+  CPU-bound benchmark functions.
+- Simplicity vs feature coverage: this first stage focuses on a solid V0/V1
+  implementation instead of prematurely adding many incomplete variants.
+
+### Current limitations
+
+This repository intentionally focuses on the first stage of the project. The
+main current limitations are:
+
+- Only V0 (sequential) and V1 (threading) are implemented.
+- The topology currently available is global-best only.
+- Configuration is currently handled through CLI arguments rather than external
+  YAML/JSON configuration files.
+- The external baseline depends on `pyswarm` being installed.
+- Threading is primarily included as an architectural and experimental
+  comparison, not as a guaranteed performance improvement on all workloads.
+
+These limitations are acceptable for the current stage because the project
+already provides a complete, testable, instrumented and comparable PSO system.
+
 ### Bounds strategy: clamp + velocity zeroing
 
 When a particle exits the search box its position is clipped to the boundary and the velocity component on the hit axis is set to zero.
@@ -370,6 +588,32 @@ Stop if the global best improves by less than `tol=1e-10` for `patience=30` cons
 ---
 
 ## 9. Reproducibility
+
+Reproducibility is treated as a core requirement of the project:
+
+- Every run is parameterised by an explicit random seed.
+- V0 and V1 are launched with the same configuration and same seed so their
+  results are directly comparable.
+- Structured outputs are saved to disk in `results/` and `logs/`.
+- The unit tests explicitly check reproducibility by seed.
+
+This makes it possible to rerun experiments, compare versions fairly, and
+inspect convergence behaviour after execution.
+
+## 10. Logging, Timing And Observability
+
+The implementation includes structured logging and timing instrumentation to
+support debugging and analysis:
+
+- Run configuration is logged at the start of each experiment.
+- Per-iteration logs can include iteration number, best fitness, evaluation
+  time, update time, total iteration time, and early-stop progress.
+- Final logs summarise total runtime, evaluation time, update time and residual
+  overhead.
+- Results are also persisted as JSON summaries and CSV convergence histories.
+
+This observability layer is useful both for software engineering quality and for
+the later experimental report.
 
 Every experiment is fully reproducible by seed.
 

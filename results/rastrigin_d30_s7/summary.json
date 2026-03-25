@@ -73,38 +73,38 @@
   "n_particles": 80,
   "max_iters": 500,
   "tol": 1e-10,
-  "patience": 50,
+  "patience": 30,
   "v0": {
-    "best_fitness": 31.83866967573465,
-    "iterations": 495,
+    "best_fitness": 31.83866967577086,
+    "iterations": 475,
     "timing": {
-      "total_s": 2.46629227399535,
-      "eval_s": 0.8268123159068637,
-      "update_s": 1.5838186150504043,
-      "overhead_s": 0.05566134303808212,
-      "pct_eval": 33.52450658929577,
-      "pct_update": 64.21860992511833
+      "total_s": 2.4890461829782,
+      "eval_s": 0.7172600362391677,
+      "update_s": 1.7000800132809673,
+      "overhead_s": 0.07170613345806487,
+      "pct_eval": 28.81666242853517,
+      "pct_update": 68.30246963303763
     },
     "max_workers": null
   },
   "v1": {
-    "best_fitness": 31.83866967573465,
-    "iterations": 495,
+    "best_fitness": 31.83866967577086,
+    "iterations": 475,
     "timing": {
-      "total_s": 4.701299645006657,
-      "eval_s": 3.1826367180474335,
-      "update_s": 1.457972309057368,
-      "overhead_s": 0.06069061790185515,
-      "pct_eval": 67.69695527550078,
-      "pct_update": 31.0121119509136
+      "total_s": 3.2341143939993344,
+      "eval_s": 2.2076411907328293,
+      "update_s": 0.9756688980851322,
+      "overhead_s": 0.05080430518137291,
+      "pct_eval": 68.26107310331842,
+      "pct_update": 30.16803919785322
     },
     "max_workers": null
   },
   "baseline": {
-    "best_fitness": 74.62159077116115,
+    "best_fitness": 73.62677871167591,
     "iterations": 500,
     "timing": {
-      "total_s": 1.489875078201294,
+      "total_s": 1.6927669048309326,
       "eval_s": 0.0,
       "update_s": 0.0,
       "overhead_s": 0.0,
@@ -114,6 +114,6 @@
     "max_workers": null
   },
   "winner": "V0 Sequential",
-  "timestamp_utc": "2026-03-18T10:52:05.866492+00:00",
+  "timestamp_utc": "2026-03-24T08:10:07.600152+00:00",
   "notes": "V1 uses ThreadPoolExecutor. For small NumPy objectives the GIL limits gains and thread overhead dominates. Speedup expected only for I/O-bound or large-compute kernels."
 }

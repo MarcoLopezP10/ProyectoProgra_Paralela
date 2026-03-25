@@ -17,38 +17,38 @@
   "n_particles": 80,
   "max_iters": 500,
   "tol": 1e-10,
-  "patience": 50,
+  "patience": 30,
   "v0": {
-    "best_fitness": 3.326724734630681e-12,
-    "iterations": 175,
+    "best_fitness": 6.8155280048123024e-09,
+    "iterations": 90,
     "timing": {
-      "total_s": 0.76342348199978,
-      "eval_s": 0.2716299898602301,
-      "update_s": 0.4777558089408558,
-      "overhead_s": 0.01403768319869414,
-      "pct_eval": 35.58051281690971,
-      "pct_update": 62.58070654171906
+      "total_s": 0.44676475899177603,
+      "eval_s": 0.16848756093531847,
+      "update_s": 0.26685926580103114,
+      "overhead_s": 0.011417932255426422,
+      "pct_eval": 37.71281363273775,
+      "pct_update": 59.73149413200324
     },
     "max_workers": null
   },
   "v1": {
-    "best_fitness": 3.326724734630681e-12,
-    "iterations": 175,
+    "best_fitness": 6.8155280048123024e-09,
+    "iterations": 90,
     "timing": {
-      "total_s": 2.559002544992836,
-      "eval_s": 1.8289526209846372,
-      "update_s": 0.7060632590582827,
-      "overhead_s": 0.023986664949916303,
-      "pct_eval": 71.47130918503082,
-      "pct_update": 27.591346497088352
+      "total_s": 0.7472972969990224,
+      "eval_s": 0.5132364480232354,
+      "update_s": 0.22350716483197175,
+      "overhead_s": 0.01055368414381519,
+      "pct_eval": 68.67901838856871,
+      "pct_update": 29.90873454641495
     },
     "max_workers": null
   },
   "baseline": {
-    "best_fitness": 1.2538774323082452e-08,
+    "best_fitness": 6.762736986267645e-11,
     "iterations": 500,
     "timing": {
-      "total_s": 0.5332131385803223,
+      "total_s": 0.4777860641479492,
       "eval_s": 0.0,
       "update_s": 0.0,
       "overhead_s": 0.0,
@@ -57,7 +57,7 @@
     },
     "max_workers": null
   },
-  "winner": "V0 Sequential",
-  "timestamp_utc": "2026-03-18T10:50:37.572406+00:00",
+  "winner": "PySwarm",
+  "timestamp_utc": "2026-03-24T08:08:04.574669+00:00",
   "notes": "V1 uses ThreadPoolExecutor. For small NumPy objectives the GIL limits gains and thread overhead dominates. Speedup expected only for I/O-bound or large-compute kernels."
 }

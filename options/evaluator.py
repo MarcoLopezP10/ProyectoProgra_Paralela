@@ -18,6 +18,14 @@ from numpy.typing import NDArray
 class FitnessEvaluator(ABC):
     """Interface for computing fitness values for a batch of positions."""
 
+    def open(self) -> None:
+        """Allocate resources needed for a run."""
+        return None
+
+    def close(self) -> None:
+        """Release resources allocated for a run."""
+        return None
+
     @abstractmethod
     def evaluate(self, positions: Iterable[NDArray]) -> List[float]:
         """Return the fitness for each position (same order as input)."""

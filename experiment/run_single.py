@@ -27,7 +27,7 @@ from core.pso import PSO
 from options.bounds import ClampBounds
 from options.topology import GlobalBestTopology
 from parallel.evaluator import SequentialEvaluator, ThreadPoolEvaluator
-from experiment.grid_search import simple_grid_search
+from experiment.grid_search import recommended_profile, simple_grid_search
 from baseline.pswarm import run_pyswarm_baseline
 from utils.logger import setup_logger
 from utils.io import (
@@ -54,16 +54,17 @@ class RunConfig:
     )
 
     # Default hyperparameters (overridden by grid search if enabled)
-    w: float = 0.7
-    c1: float = 1.5
-    c2: float = 1.5
-    n_particles: int = 80
+    w: Optional[float] = None
+    c1: Optional[float] = None
+    c2: Optional[float] = None
+    n_particles: Optional[int] = None
     use_grid_search: bool = False
     thread_max_workers: Optional[int] = None
 
-    max_iters: int = 1000
-    tol: float = 1e-10
-    patience: int = 80
+    max_iters: Optional[int] = None
+    tol: Optional[float] = None
+    patience: Optional[int] = None
+    vmax_ratio: Optional[float] = None
     log_every: int = 10       # log a line every N iters inside PSO (0 = off)
 
     # Output paths
@@ -97,7 +98,13 @@ def _build_pso(
 ) -> PSO:
     """Construct a PSO instance with the given evaluator, same seed always."""
     rng = np.random.default_rng(cfg.seed)
-    swarm = Swarm(n_particles=n_particles, dim=cfg.dim, bounds=bounds, rng=rng)
+    swarm = Swarm(
+        n_particles=n_particles,
+        dim=cfg.dim,
+        bounds=bounds,
+        rng=rng,
+        vmax_ratio=cfg.vmax_ratio if cfg.vmax_ratio is not None else 0.2,
+    )
     return PSO(
         swarm=swarm,
         evaluator=evaluator,
@@ -111,6 +118,21 @@ def _build_pso(
         log_every=cfg.log_every,
         logger=logger,
     )
+
+
+def _resolve_run_config(cfg: RunConfig, objective_name: str) -> Dict[str, float]:
+    """Resolve conservative defaults while keeping explicit user overrides."""
+    profile = recommended_profile(objective_name, cfg.dim)
+    return {
+        "w": profile["w"] if cfg.w is None else cfg.w,
+        "c1": profile["c1"] if cfg.c1 is None else cfg.c1,
+        "c2": profile["c2"] if cfg.c2 is None else cfg.c2,
+        "n_particles": profile["n_particles"] if cfg.n_particles is None else cfg.n_particles,
+        "max_iters": profile["max_iters"] if cfg.max_iters is None else cfg.max_iters,
+        "tol": profile["tol"] if cfg.tol is None else cfg.tol,
+        "patience": profile["patience"] if cfg.patience is None else cfg.patience,
+        "vmax_ratio": profile["vmax_ratio"] if cfg.vmax_ratio is None else cfg.vmax_ratio,
+    }
 
 
 def _resolve_winner(results: list[tuple[str, float, float]]) -> str:
@@ -212,6 +234,11 @@ def run_one_objective(
     """
     logger = setup_logger(log_dir=cfg.log_dir, log_file=cfg.log_file)
     name = getattr(objective, "__name__", "objective")
+    resolved = _resolve_run_config(cfg, name)
+    cfg.max_iters = int(resolved["max_iters"])
+    cfg.tol = float(resolved["tol"])
+    cfg.patience = int(resolved["patience"])
+    cfg.vmax_ratio = float(resolved["vmax_ratio"])
 
     # Bounds always scaled to cfg.dim
     bounds = cfg.bounds_for_dim()
@@ -227,18 +254,26 @@ def run_one_objective(
             bounds=bounds,
             max_iters=cfg.max_iters,
             seed=cfg.seed,
+            vmax_ratio=cfg.vmax_ratio,
         )
         w, c1, c2 = float(best["w"]), float(best["c1"]), float(best["c2"])
         n_particles = int(best["n_particles"])
         hyperparam_source = "grid_search"
     else:
-        w, c1, c2 = cfg.w, cfg.c1, cfg.c2
-        n_particles = cfg.n_particles
+        w = float(resolved["w"])
+        c1 = float(resolved["c1"])
+        c2 = float(resolved["c2"])
+        n_particles = int(resolved["n_particles"])
         hyperparam_source = "fixed_config"
 
     tag = f"{name.upper()} d={cfg.dim} seed={cfg.seed}"
     log = logging.LoggerAdapter(logger, {"objective": tag, "method": "RUN"})
-    log.info(f"Hyperparams: source={hyperparam_source} w={w} c1={c1} c2={c2} n={n_particles}")
+    log.info(
+        f"event=config source={hyperparam_source} objective={name} dim={cfg.dim} "
+        f"seed={cfg.seed} w={w:.3f} c1={c1:.3f} c2={c2:.3f} "
+        f"particles={n_particles} vmax_ratio={cfg.vmax_ratio:.3f} "
+        f"max_iters={cfg.max_iters} patience={cfg.patience} tol={cfg.tol:.1e}"
+    )
 
     # ── 2. V0 — Sequential ───────────────────────────────────────────
     v0_log = logging.LoggerAdapter(logger, {"objective": tag, "method": "V0"})
@@ -275,16 +310,19 @@ def run_one_objective(
 
     # ── 6. Log summary ────────────────────────────────────────────────
     log.info(
-        f"V0  fit={v0_fit:.6e} iters={v0_iters} time={v0_time:.4f}s "
-        f"eval={v0_timing['pct_eval']:.1f}% update={v0_timing['pct_update']:.1f}%"
+        f"event=summary method=V0 fit={v0_fit:.6e} iters={v0_iters} "
+        f"time_s={v0_time:.4f} eval_pct={v0_timing['pct_eval']:.1f} "
+        f"update_pct={v0_timing['pct_update']:.1f}"
     )
     log.info(
-        f"V1  fit={v1_fit:.6e} iters={v1_iters} time={v1_time:.4f}s "
-        f"eval={v1_timing['pct_eval']:.1f}% update={v1_timing['pct_update']:.1f}% "
-        f"speedup={v0_time/v1_time:.3f}x"
+        f"event=summary method=V1 fit={v1_fit:.6e} iters={v1_iters} "
+        f"time_s={v1_time:.4f} eval_pct={v1_timing['pct_eval']:.1f} "
+        f"update_pct={v1_timing['pct_update']:.1f} speedup_vs_v0={v0_time/v1_time:.3f}x"
     )
-    log.info(f"PySwarm fit={base_fit:.6e} time={base_time:.4f}s")
-    log.info(f"Winner: {winner}")
+    log.info(
+        f"event=summary method=PySwarm fit={base_fit:.6e} iters={base_iters} time_s={base_time:.4f}"
+    )
+    log.info(f"event=summary winner={winner}")
 
     # ── 7. Console table ──────────────────────────────────────────────
     _print_table(

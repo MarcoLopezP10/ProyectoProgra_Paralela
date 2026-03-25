@@ -8,7 +8,14 @@ class Swarm:
     Class representing a PSO swarm.
     """
 
-    def __init__(self, n_particles: int, dim: int, bounds: tuple[list[float], list[float]], rng: np.random.Generator):
+    def __init__(
+        self,
+        n_particles: int,
+        dim: int,
+        bounds: tuple[list[float], list[float]],
+        rng: np.random.Generator,
+        vmax_ratio: float = 0.2,
+    ):
         """
         Initialize a swarm with multiple particles.
 
@@ -18,7 +25,10 @@ class Swarm:
             bounds (tuple[list, list]): Lower and upper bounds.
             rng (np.random.Generator): Random number generator.
         """
-        self.particles: List[Particle] = [Particle(dim, bounds, rng) for _ in range(n_particles)]
+        self.particles: List[Particle] = [
+            Particle(dim, bounds, rng, vmax_ratio=vmax_ratio)
+            for _ in range(n_particles)
+        ]
         self.global_best_position: NDArray[np.float64] | None = None
         self.global_best_fitness: float = np.inf
 

@@ -17,38 +17,38 @@
   "n_particles": 80,
   "max_iters": 500,
   "tol": 1e-10,
-  "patience": 50,
+  "patience": 30,
   "v0": {
-    "best_fitness": 0.0,
-    "iterations": 131,
+    "best_fitness": 3.552713678800501e-14,
+    "iterations": 111,
     "timing": {
-      "total_s": 1.3627679790079128,
-      "eval_s": 0.5614396539604058,
-      "update_s": 0.7794674069155008,
-      "overhead_s": 0.02186091813200619,
-      "pct_eval": 41.198477114873995,
-      "pct_update": 57.19736733783168
+      "total_s": 0.5441644579987042,
+      "eval_s": 0.15952388488221914,
+      "update_s": 0.36853892283397727,
+      "overhead_s": 0.016101650282507762,
+      "pct_eval": 29.315381138434994,
+      "pct_update": 67.72565121018155
     },
     "max_workers": null
   },
   "v1": {
-    "best_fitness": 0.0,
-    "iterations": 131,
+    "best_fitness": 3.552713678800501e-14,
+    "iterations": 111,
     "timing": {
-      "total_s": 1.1824886700051138,
-      "eval_s": 0.7795309869688936,
-      "update_s": 0.38826036601676606,
-      "overhead_s": 0.014697317019454204,
-      "pct_eval": 65.92291382931579,
-      "pct_update": 32.83417218831255
+      "total_s": 1.1659933220071252,
+      "eval_s": 0.7939758201828226,
+      "update_s": 0.356812047859421,
+      "overhead_s": 0.015205453964881599,
+      "pct_eval": 68.09437114237356,
+      "pct_update": 30.601551580519306
     },
     "max_workers": null
   },
   "baseline": {
-    "best_fitness": 5.145750492374646e-10,
+    "best_fitness": 2.3837749552058085e-09,
     "iterations": 500,
     "timing": {
-      "total_s": 0.31383323669433594,
+      "total_s": 0.4743938446044922,
       "eval_s": 0.0,
       "update_s": 0.0,
       "overhead_s": 0.0,
@@ -57,7 +57,7 @@
     },
     "max_workers": null
   },
-  "winner": "V1 Threading",
-  "timestamp_utc": "2026-03-18T10:51:33.580780+00:00",
+  "winner": "V0 Sequential",
+  "timestamp_utc": "2026-03-24T08:09:22.672202+00:00",
   "notes": "V1 uses ThreadPoolExecutor. For small NumPy objectives the GIL limits gains and thread overhead dominates. Speedup expected only for I/O-bound or large-compute kernels."
 }

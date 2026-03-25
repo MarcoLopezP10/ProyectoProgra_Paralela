@@ -23,6 +23,81 @@ from options.topology import GlobalBestTopology
 from options.evaluator import SequentialEvaluator
 
 
+def recommended_profile(objective_name: str, dim: int) -> Dict[str, Any]:
+    """Return conservative, dimension-aware defaults for stronger fitness."""
+    profile: Dict[str, Any] = {
+        "w": 0.6,
+        "c1": 1.4,
+        "c2": 1.6,
+        "n_particles": 60 if dim <= 2 else 100 if dim <= 10 else 140,
+        "max_iters": 500 if dim <= 2 else 900 if dim <= 10 else 1400,
+        "patience": 60 if dim <= 2 else 100 if dim <= 10 else 160,
+        "tol": 1e-10,
+        "vmax_ratio": 0.2,
+        "quick_seeds": [0, 7, 42],
+    }
+
+    if objective_name == "ackley":
+        profile.update({
+            "w": 0.5,
+            "c1": 1.3,
+            "c2": 1.7,
+            "n_particles": 70 if dim <= 2 else 110 if dim <= 10 else 160,
+            "max_iters": 700 if dim <= 2 else 1100 if dim <= 10 else 1600,
+            "patience": 90 if dim <= 2 else 130 if dim <= 10 else 200,
+            "vmax_ratio": 0.15,
+        })
+    elif objective_name == "rastrigin":
+        profile.update({
+            "w": 0.5,
+            "c1": 1.2,
+            "c2": 1.8,
+            "n_particles": 80 if dim <= 2 else 120 if dim <= 10 else 160,
+            "max_iters": 800 if dim <= 2 else 1200 if dim <= 10 else 1800,
+            "patience": 110 if dim <= 2 else 160 if dim <= 10 else 240,
+            "vmax_ratio": 0.12,
+        })
+    elif objective_name == "rosenbrock":
+        profile.update({
+            "w": 0.7,
+            "c1": 1.3,
+            "c2": 1.6,
+            "n_particles": 70 if dim <= 2 else 110 if dim <= 10 else 150,
+            "max_iters": 900 if dim <= 2 else 1500 if dim <= 10 else 2200,
+            "patience": 120 if dim <= 2 else 180 if dim <= 10 else 260,
+            "vmax_ratio": 0.08,
+        })
+
+    if objective_name == "sphere":
+        n_values = [50, 80] if dim <= 2 else [80, 120] if dim <= 10 else [120, 160]
+        w_values = [0.4, 0.5, 0.6, 0.7]
+        c1_values = [1.2, 1.5, 1.8]
+        c2_values = [1.2, 1.5, 1.8]
+    elif objective_name == "ackley":
+        n_values = [60, 90] if dim <= 2 else [90, 120] if dim <= 10 else [120, 160]
+        w_values = [0.4, 0.5, 0.6, 0.7]
+        c1_values = [1.1, 1.3, 1.5]
+        c2_values = [1.5, 1.7, 1.9]
+    elif objective_name == "rastrigin":
+        n_values = [80, 100] if dim <= 2 else [100, 140] if dim <= 10 else [140, 180]
+        w_values = [0.4, 0.5, 0.6]
+        c1_values = [1.0, 1.2, 1.4]
+        c2_values = [1.6, 1.8, 2.0]
+    else:
+        n_values = [60, 90] if dim <= 2 else [90, 120] if dim <= 10 else [120, 160]
+        w_values = [0.5, 0.6, 0.7]
+        c1_values = [1.1, 1.3, 1.5]
+        c2_values = [1.4, 1.6, 1.8]
+
+    profile.update({
+        "w_values": w_values,
+        "c1_values": c1_values,
+        "c2_values": c2_values,
+        "n_particles_values": n_values,
+    })
+    return profile
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Core grid search
 # ──────────────────────────────────────────────────────────────────────────────
@@ -39,6 +114,7 @@ def grid_search(
     max_iters: int                  = 200,
     tol: float                      = 1e-8,
     patience: int                   = 40,
+    vmax_ratio: float               = 0.2,
     verbose: bool                   = False,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """
@@ -93,7 +169,13 @@ def grid_search(
         for seed in seeds:
             run_n += 1
             rng = np.random.default_rng(seed)
-            swarm = Swarm(n_particles=int(n_part), dim=dim, bounds=bounds, rng=rng)
+            swarm = Swarm(
+                n_particles=int(n_part),
+                dim=dim,
+                bounds=bounds,
+                rng=rng,
+                vmax_ratio=vmax_ratio,
+            )
             pso = PSO(
                 swarm=swarm,
                 evaluator=SequentialEvaluator(objective_fn),
@@ -159,42 +241,34 @@ def simple_grid_search(
     bounds: Tuple[List[float], List[float]],
     max_iters: int = 200,
     seed: int = 42,
+    vmax_ratio: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
-    Lightweight single-seed grid search used by run_single.py.
+    Lightweight multi-seed grid search used by run_single.py.
 
-    Kept for backwards compatibility. For the full multi-seed grid search
-    required by the project specification, use grid_search() directly.
+    Uses a small, dimension-aware search space and three seeds so parameter
+    selection is more stable without becoming too slow.
     """
     name = getattr(objective_fn, "__name__", "objective")
+    profile = recommended_profile(name, dim)
+    quick_seeds = list(profile["quick_seeds"])
+    if seed not in quick_seeds:
+        quick_seeds[-1] = seed
 
-    if name == "rosenbrock":
-        w_vals  = [0.6, 0.7, 0.9]
-        c1_vals = [1.2, 1.5, 1.8]
-        c2_vals = [1.2, 1.5, 1.8]
-        n_vals  = [80, 100, 120]
-    elif name == "rastrigin":
-        w_vals  = [0.5, 0.6, 0.8]
-        c1_vals = [1.0, 1.3, 1.6]
-        c2_vals = [1.4, 1.7, 2.0]
-        n_vals  = [80, 100, 120]
-    else:
-        w_vals  = [0.4, 0.6, 0.8]
-        c1_vals = [1.2, 1.5, 1.8]
-        c2_vals = [1.2, 1.5, 1.8]
-        n_vals  = [60, 80, 100]
-
-    grid_iters = max(40, int(max_iters * 0.4))
+    grid_iters = max(60, int(max_iters * 0.5))
     best_params, _ = grid_search(
         objective_fn=objective_fn,
         dim=dim,
         bounds=bounds,
-        w_values=w_vals,
-        c1_values=c1_vals,
-        c2_values=c2_vals,
-        n_particles_values=n_vals,
-        seeds=[seed],          # single seed for the fast in-run search
+        w_values=profile["w_values"],
+        c1_values=profile["c1_values"],
+        c2_values=profile["c2_values"],
+        n_particles_values=profile["n_particles_values"],
+        seeds=quick_seeds,
         max_iters=grid_iters,
+        tol=profile["tol"],
+        patience=max(40, int(profile["patience"] * 0.6)),
+        vmax_ratio=profile["vmax_ratio"] if vmax_ratio is None else vmax_ratio,
         verbose=False,
     )
     return best_params

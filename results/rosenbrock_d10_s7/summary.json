@@ -33,17 +33,17 @@
   "n_particles": 80,
   "max_iters": 500,
   "tol": 1e-10,
-  "patience": 50,
+  "patience": 30,
   "v0": {
     "best_fitness": 1.3596765421580095,
     "iterations": 500,
     "timing": {
-      "total_s": 5.9768474839947885,
-      "eval_s": 2.3541275508032413,
-      "update_s": 3.483724978141254,
-      "overhead_s": 0.13899495505029336,
-      "pct_eval": 39.387445590794904,
-      "pct_update": 58.28699807833831
+      "total_s": 2.354351907997625,
+      "eval_s": 0.828595896542538,
+      "update_s": 1.4604453701758757,
+      "overhead_s": 0.06531064127921127,
+      "pct_eval": 35.19422452216408,
+      "pct_update": 62.031736428815506
     },
     "max_workers": null
   },
@@ -51,20 +51,20 @@
     "best_fitness": 1.3596765421580095,
     "iterations": 500,
     "timing": {
-      "total_s": 3.8067745029984508,
-      "eval_s": 2.5921137488330714,
-      "update_s": 1.1717488441063324,
-      "overhead_s": 0.04291191005904693,
-      "pct_eval": 68.09212751612586,
-      "pct_update": 30.78062131558858
+      "total_s": 4.0029313229897525,
+      "eval_s": 2.727050159155624,
+      "update_s": 1.2194427498907316,
+      "overhead_s": 0.05643841394339688,
+      "pct_eval": 68.12632891035501,
+      "pct_update": 30.463743978998398
     },
     "max_workers": null
   },
   "baseline": {
-    "best_fitness": 1.2173265519887355,
+    "best_fitness": 0.9905516757969572,
     "iterations": 500,
     "timing": {
-      "total_s": 4.249585151672363,
+      "total_s": 1.9268810749053955,
       "eval_s": 0.0,
       "update_s": 0.0,
       "overhead_s": 0.0,
@@ -74,6 +74,6 @@
     "max_workers": null
   },
   "winner": "PySwarm",
-  "timestamp_utc": "2026-03-18T10:51:03.498419+00:00",
+  "timestamp_utc": "2026-03-24T08:08:33.443844+00:00",
   "notes": "V1 uses ThreadPoolExecutor. For small NumPy objectives the GIL limits gains and thread overhead dominates. Speedup expected only for I/O-bound or large-compute kernels."
 }

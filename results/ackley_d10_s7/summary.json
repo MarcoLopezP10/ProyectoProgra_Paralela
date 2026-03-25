@@ -33,38 +33,38 @@
   "n_particles": 80,
   "max_iters": 500,
   "tol": 1e-10,
-  "patience": 50,
+  "patience": 30,
   "v0": {
-    "best_fitness": 5.24780219279819e-12,
-    "iterations": 329,
+    "best_fitness": 2.6986857193378455e-11,
+    "iterations": 309,
     "timing": {
-      "total_s": 2.7895111229881877,
-      "eval_s": 1.085448184996494,
-      "update_s": 1.5698696959734662,
-      "overhead_s": 0.13419324201822747,
-      "pct_eval": 38.91177117206607,
-      "pct_update": 56.27759226468995
+      "total_s": 1.6592929429898504,
+      "eval_s": 0.6315172860340681,
+      "update_s": 0.9771986673295032,
+      "overhead_s": 0.0505769896262791,
+      "pct_eval": 38.059420954093156,
+      "pct_update": 58.892474138334265
     },
     "max_workers": null
   },
   "v1": {
-    "best_fitness": 5.24780219279819e-12,
-    "iterations": 329,
+    "best_fitness": 2.6986857193378455e-11,
+    "iterations": 309,
     "timing": {
-      "total_s": 2.9855990240030224,
-      "eval_s": 2.0690944730013143,
-      "update_s": 0.8822427689301549,
-      "overhead_s": 0.03426178207155317,
-      "pct_eval": 69.3024902663292,
-      "pct_update": 29.549941631052118
+      "total_s": 2.9834788810112514,
+      "eval_s": 2.0707208345411345,
+      "update_s": 0.8669449920707848,
+      "overhead_s": 0.04581305439933203,
+      "pct_eval": 69.40625079401477,
+      "pct_update": 29.058191012799576
     },
     "max_workers": null
   },
   "baseline": {
-    "best_fitness": 2.1531347416114954e-07,
+    "best_fitness": 1.6174819248426786e-06,
     "iterations": 500,
     "timing": {
-      "total_s": 0.85736083984375,
+      "total_s": 0.7735288143157959,
       "eval_s": 0.0,
       "update_s": 0.0,
       "overhead_s": 0.0,
@@ -74,6 +74,6 @@
     "max_workers": null
   },
   "winner": "V0 Sequential",
-  "timestamp_utc": "2026-03-18T10:50:07.832262+00:00",
+  "timestamp_utc": "2026-03-24T08:07:24.731255+00:00",
   "notes": "V1 uses ThreadPoolExecutor. For small NumPy objectives the GIL limits gains and thread overhead dominates. Speedup expected only for I/O-bound or large-compute kernels."
 }

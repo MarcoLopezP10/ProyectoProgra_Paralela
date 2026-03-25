@@ -116,64 +116,78 @@ class PSO:
         prev_best = np.inf
 
         self._log(
-            f"PSO start | seed={self.seed} w={self.w} c1={self.c1} c2={self.c2} "
-            f"n_particles={len(self.swarm.particles)} max_iters={self.max_iters}"
+            f"event=start seed={self.seed} w={self.w:.3f} c1={self.c1:.3f} "
+            f"c2={self.c2:.3f} particles={len(self.swarm.particles)} "
+            f"max_iters={self.max_iters} tol={self.tol:.1e} patience={self.patience}"
         )
 
-        for it in range(self.max_iters):
+        self.evaluator.open()
+        try:
+            for it in range(self.max_iters):
 
-            # ── 1. Evaluate fitness ───────────────────────────────────
-            positions = self.swarm.get_positions()
-            t0 = time.perf_counter()
-            fitness = self.evaluator.evaluate(positions)
-            t1 = time.perf_counter()
-            iter_eval_time = t1 - t0
-            self.time_eval += iter_eval_time
+                # ── 1. Evaluate fitness ───────────────────────────────────
+                positions = self.swarm.get_positions()
+                t0 = time.perf_counter()
+                fitness = self.evaluator.evaluate(positions)
+                t1 = time.perf_counter()
+                iter_eval_time = t1 - t0
+                self.time_eval += iter_eval_time
 
-            # ── 2. Update personal and global bests ──────────────────
-            self.swarm.update_global_best(positions, fitness)
-            self.history.append(self.swarm.global_best_fitness)
+                # ── 2. Update personal and global bests ──────────────────
+                self.swarm.update_global_best(positions, fitness)
+                self.history.append(self.swarm.global_best_fitness)
 
-            # ── 3. Early stopping check ───────────────────────────────
-            improvement = abs(prev_best - self.swarm.global_best_fitness)
-            if improvement < self.tol:
-                no_improve_counter += 1
-            else:
-                no_improve_counter = 0
+                # ── 3. Early stopping check ───────────────────────────────
+                improvement = abs(prev_best - self.swarm.global_best_fitness)
+                if improvement < self.tol:
+                    no_improve_counter += 1
+                else:
+                    no_improve_counter = 0
 
-            # ── 4. Per-iteration structured log ───────────────────────
-            if self.log_every > 0 and it % self.log_every == 0:
-                self._log(
-                    f"iter={it:>5d} | best={self.swarm.global_best_fitness:.6e} "
-                    f"| t_eval={iter_eval_time*1000:.2f}ms "
-                    f"| no_improve={no_improve_counter}/{self.patience}"
-                )
+                # ── 5. Update velocities and positions ────────────────────
+                t2 = time.perf_counter()
+                for p in self.swarm.particles:
+                    best_pos = self.topology.get_best_position(p, self.swarm)
+                    p.update_velocity(best_pos, self.w, self.c1, self.c2)
+                    p.update_position()
+                    p.position, p.velocity = self.bounds_handler.apply(
+                        p.position, p.velocity
+                    )
+                t3 = time.perf_counter()
+                iter_update_time = t3 - t2
+                self.time_update += iter_update_time
 
-            if no_improve_counter >= self.patience:
-                self._log(f"Early stop at iter={it} (no improvement for {self.patience} iters)")
-                break
+                # ── 6. Per-iteration structured log ───────────────────────
+                if self.log_every > 0 and it % self.log_every == 0:
+                    self._log(
+                        f"event=iter iter={it:04d}/{self.max_iters} "
+                        f"best={self.swarm.global_best_fitness:.6e} "
+                        f"eval_ms={iter_eval_time*1000:.2f} "
+                        f"update_ms={iter_update_time*1000:.2f} "
+                        f"iter_ms={(iter_eval_time + iter_update_time)*1000:.2f} "
+                        f"stall={no_improve_counter}/{self.patience}"
+                    )
 
-            prev_best = self.swarm.global_best_fitness
+                if no_improve_counter >= self.patience:
+                    self._log(
+                        f"event=stop reason=early_stop iter={it} "
+                        f"stall={no_improve_counter}/{self.patience}"
+                    )
+                    break
 
-            # ── 5. Update velocities and positions ────────────────────
-            t2 = time.perf_counter()
-            for p in self.swarm.particles:
-                best_pos = self.topology.get_best_position(p, self.swarm)
-                p.update_velocity(best_pos, self.w, self.c1, self.c2)
-                p.update_position()
-                p.position, p.velocity = self.bounds_handler.apply(
-                    p.position, p.velocity
-                )
-            t3 = time.perf_counter()
-            self.time_update += t3 - t2
+                prev_best = self.swarm.global_best_fitness
+        finally:
+            self.evaluator.close()
 
         self.time_total = time.perf_counter() - start_total
 
         self._log(
-            f"PSO done  | best={self.swarm.global_best_fitness:.6e} "
-            f"| iters={len(self.history)} | total={self.time_total:.4f}s "
-            f"| t_eval={self.time_eval:.4f}s ({100*self.time_eval/self.time_total:.1f}%) "
-            f"| t_update={self.time_update:.4f}s ({100*self.time_update/self.time_total:.1f}%)"
+            f"event=done best={self.swarm.global_best_fitness:.6e} "
+            f"iters={len(self.history)} total_s={self.time_total:.4f} "
+            f"eval_s={self.time_eval:.4f} update_s={self.time_update:.4f} "
+            f"overhead_s={max(self.time_total - self.time_eval - self.time_update, 0.0):.4f} "
+            f"pct_eval={100*self.time_eval/self.time_total:.1f} "
+            f"pct_update={100*self.time_update/self.time_total:.1f}"
         )
 
         return (

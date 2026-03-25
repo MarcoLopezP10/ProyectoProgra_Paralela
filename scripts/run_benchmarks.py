@@ -63,10 +63,12 @@ def parse_args(argv=None):
                    metavar="S", help="Random seeds (one run per seed).")
     p.add_argument("--bounds-lo", type=float, default=-5.0)
     p.add_argument("--bounds-hi", type=float, default=5.0)
-    p.add_argument("--n-particles", type=int, default=80)
-    p.add_argument("--max-iters",   type=int, default=500)
-    p.add_argument("--tol",         type=float, default=1e-10)
-    p.add_argument("--patience",    type=int, default=50)
+    p.add_argument("--n-particles", type=int, default=None)
+    p.add_argument("--max-iters",   type=int, default=None)
+    p.add_argument("--tol",         type=float, default=None)
+    p.add_argument("--patience",    type=int, default=None)
+    p.add_argument("--vmax-ratio",  type=float, default=None,
+                   help="Initial velocity cap as a fraction of the search range.")
     p.add_argument("--log-every",   type=int, default=0,
                    help="Per-iteration log frequency (0 = off, keeps output clean).")
     p.add_argument("--workers",     type=int, default=None,
@@ -165,6 +167,7 @@ def main(argv=None) -> None:
                     max_iters=args.max_iters,
                     tol=args.tol,
                     patience=args.patience,
+                    vmax_ratio=args.vmax_ratio,
                     log_every=args.log_every,
                     out_dir=args.out_dir,
                     plots_dir=args.plots_dir,

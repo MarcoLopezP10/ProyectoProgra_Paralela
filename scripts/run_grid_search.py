@@ -30,7 +30,11 @@ import argparse
 import os
 import time
 
-from experiment.grid_search import grid_search, save_grid_search_csv
+from experiment.grid_search import (
+    grid_search,
+    recommended_profile,
+    save_grid_search_csv,
+)
 from objectives.sphere import sphere
 from objectives.ackley import ackley
 from objectives.rosenbrock import rosenbrock
@@ -64,13 +68,13 @@ def parse_args(argv=None):
                    metavar="S", help="Seeds to average over per combination.")
 
     # Grid definition (3×3×3 default)
-    p.add_argument("--w",  nargs="+", type=float, default=[0.4, 0.6, 0.8],
+    p.add_argument("--w",  nargs="+", type=float, default=None,
                    help="Inertia weight values to try.")
-    p.add_argument("--c1", nargs="+", type=float, default=[1.2, 1.5, 1.8],
+    p.add_argument("--c1", nargs="+", type=float, default=None,
                    help="Cognitive coefficient values to try.")
-    p.add_argument("--c2", nargs="+", type=float, default=[1.2, 1.5, 1.8],
+    p.add_argument("--c2", nargs="+", type=float, default=None,
                    help="Social coefficient values to try.")
-    p.add_argument("--n-particles", nargs="+", type=int, default=[80],
+    p.add_argument("--n-particles", nargs="+", type=int, default=None,
                    help="Swarm size(s) to include in the grid.")
 
     p.add_argument("--bounds-lo", type=float, default=-5.0)
@@ -79,6 +83,8 @@ def parse_args(argv=None):
                    help="Iterations per combination (kept low for speed).")
     p.add_argument("--tol",       type=float, default=1e-8)
     p.add_argument("--patience",  type=int,   default=40)
+    p.add_argument("--vmax-ratio", type=float, default=None,
+                   help="Initial velocity cap as a fraction of the search range.")
 
     p.add_argument("--out-dir",   default="results/grid_search",
                    help="Directory for CSV output files.")
@@ -95,13 +101,26 @@ def main(argv=None) -> None:
     args = parse_args(argv)
     os.makedirs(args.out_dir, exist_ok=True)
 
-    n_combos = len(args.w) * len(args.c1) * len(args.c2) * len(args.n_particles)
-    total_runs = len(args.objective) * len(args.dims) * n_combos * len(args.seeds)
+    combo_counts = []
+    combo_labels = []
+    for obj_name in args.objective:
+        for dim in args.dims:
+            profile = recommended_profile(obj_name, dim)
+            w_values = args.w if args.w is not None else profile["w_values"]
+            c1_values = args.c1 if args.c1 is not None else profile["c1_values"]
+            c2_values = args.c2 if args.c2 is not None else profile["c2_values"]
+            n_values = args.n_particles if args.n_particles is not None else profile["n_particles_values"]
+            combo_counts.append(len(w_values) * len(c1_values) * len(c2_values) * len(n_values))
+            combo_labels.append(
+                f"{len(w_values)}x{len(c1_values)}x{len(c2_values)}x{len(n_values)}"
+            )
+
+    n_combos = max(combo_counts) if combo_counts else 0
+    total_runs = sum(combo_counts) * len(args.seeds)
+    combo_label = combo_labels[0] if combo_labels and len(set(combo_labels)) == 1 else "adaptive"
 
     print(f"\nGrid search")
-    print(f"  Grid    : {len(args.w)}×{len(args.c1)}×{len(args.c2)} "
-          f"(w × c1 × c2) × {len(args.n_particles)} swarm size(s) "
-          f"= {n_combos} combinations")
+    print(f"  Grid    : {combo_label} combinations/profile (max {n_combos})")
     print(f"  Seeds   : {args.seeds}  ({len(args.seeds)} per combination)")
     print(f"  Runs    : {total_runs} total")
     print(f"  Budget  : {args.max_iters} iters/run\n")
@@ -112,6 +131,11 @@ def main(argv=None) -> None:
         obj_fn = OBJECTIVES[obj_name]
         for dim in args.dims:
             bounds = ([args.bounds_lo] * dim, [args.bounds_hi] * dim)
+            profile = recommended_profile(obj_name, dim)
+            w_values = args.w if args.w is not None else profile["w_values"]
+            c1_values = args.c1 if args.c1 is not None else profile["c1_values"]
+            c2_values = args.c2 if args.c2 is not None else profile["c2_values"]
+            n_values = args.n_particles if args.n_particles is not None else profile["n_particles_values"]
 
             print(f"{'─'*55}")
             print(f"  {obj_name.upper()}  d={dim}")
@@ -122,14 +146,15 @@ def main(argv=None) -> None:
                 objective_fn=obj_fn,
                 dim=dim,
                 bounds=bounds,
-                w_values=args.w,
-                c1_values=args.c1,
-                c2_values=args.c2,
-                n_particles_values=args.n_particles,
+                w_values=w_values,
+                c1_values=c1_values,
+                c2_values=c2_values,
+                n_particles_values=n_values,
                 seeds=args.seeds,
                 max_iters=args.max_iters,
                 tol=args.tol,
                 patience=args.patience,
+                vmax_ratio=profile["vmax_ratio"] if args.vmax_ratio is None else args.vmax_ratio,
                 verbose=args.verbose,
             )
             elapsed = time.perf_counter() - t0

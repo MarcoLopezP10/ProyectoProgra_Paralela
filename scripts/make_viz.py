@@ -66,6 +66,7 @@ def parse_args(argv=None):
     p.add_argument("--w",          type=float, default=0.7)
     p.add_argument("--c1",         type=float, default=1.5)
     p.add_argument("--c2",         type=float, default=1.5)
+    p.add_argument("--vmax-ratio", type=float, default=0.2)
     p.add_argument("--fps",        type=int,   default=6)
     p.add_argument("--format",     choices=["gif", "mp4"], default="gif")
     p.add_argument("--out-dir",    default="logs/animations")
@@ -85,6 +86,7 @@ def run_with_recorder(
     w: float,
     c1: float,
     c2: float,
+    vmax_ratio: float,
 ) -> SwarmRecorder:
     """
     Run a PSO and record every iteration into a SwarmRecorder.
@@ -93,11 +95,15 @@ def run_with_recorder(
     manual loop here that mirrors the core logic exactly and records
     snapshots at each step.
     """
-    import time
-
     lo, hi = bounds
     rng = np.random.default_rng(seed)
-    swarm = Swarm(n_particles=n_particles, dim=2, bounds=bounds, rng=rng)
+    swarm = Swarm(
+        n_particles=n_particles,
+        dim=2,
+        bounds=bounds,
+        rng=rng,
+        vmax_ratio=vmax_ratio,
+    )
     evaluator  = SequentialEvaluator(objective_fn)
     bounds_h   = ClampBounds(lo, hi)
     topology   = GlobalBestTopology()
@@ -157,6 +163,7 @@ def main(argv=None) -> None:
             w=args.w,
             c1=args.c1,
             c2=args.c2,
+            vmax_ratio=args.vmax_ratio,
         )
         print(f"  Recorded {len(recorder)} frames.")
 

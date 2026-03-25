@@ -73,38 +73,38 @@
   "n_particles": 80,
   "max_iters": 500,
   "tol": 1e-10,
-  "patience": 50,
+  "patience": 30,
   "v0": {
-    "best_fitness": 84.57135342315752,
-    "iterations": 480,
+    "best_fitness": 84.57135342318435,
+    "iterations": 460,
     "timing": {
-      "total_s": 3.8894969990069512,
-      "eval_s": 1.276941427073325,
-      "update_s": 2.535109899006784,
-      "overhead_s": 0.07744567292684224,
-      "pct_eval": 32.830502951907356,
-      "pct_update": 65.17834824539104
+      "total_s": 2.045863264007494,
+      "eval_s": 0.6464761628012639,
+      "update_s": 1.340027784492122,
+      "overhead_s": 0.05935931671410799,
+      "pct_eval": 31.599187207405464,
+      "pct_update": 65.49938151131559
     },
     "max_workers": null
   },
   "v1": {
-    "best_fitness": 84.57135342315752,
-    "iterations": 480,
+    "best_fitness": 84.57135342318435,
+    "iterations": 460,
     "timing": {
-      "total_s": 4.276909096995951,
-      "eval_s": 2.8169186969316797,
-      "update_s": 1.4009154064115137,
-      "overhead_s": 0.05907499365275726,
-      "pct_eval": 65.86342222962489,
-      "pct_update": 32.755323403892305
+      "total_s": 3.6707337719853967,
+      "eval_s": 2.491272563318489,
+      "update_s": 1.1209460689569823,
+      "overhead_s": 0.05851513970992528,
+      "pct_eval": 67.86851670724761,
+      "pct_update": 30.537384037815798
     },
     "max_workers": null
   },
   "baseline": {
-    "best_fitness": 115.41465720599169,
+    "best_fitness": 133.57612697074435,
     "iterations": 500,
     "timing": {
-      "total_s": 2.242314100265503,
+      "total_s": 1.7128019332885742,
       "eval_s": 0.0,
       "update_s": 0.0,
       "overhead_s": 0.0,
@@ -114,6 +114,6 @@
     "max_workers": null
   },
   "winner": "V0 Sequential",
-  "timestamp_utc": "2026-03-18T10:51:56.587814+00:00",
+  "timestamp_utc": "2026-03-24T08:09:58.682920+00:00",
   "notes": "V1 uses ThreadPoolExecutor. For small NumPy objectives the GIL limits gains and thread overhead dominates. Speedup expected only for I/O-bound or large-compute kernels."
 }

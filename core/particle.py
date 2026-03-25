@@ -14,7 +14,7 @@ class Particle:
     - personal best fitness
     """
 
-    def __init__(self, dim, bounds, rng):
+    def __init__(self, dim, bounds, rng, vmax_ratio: float = 0.2):
         """
         Initialize a particle inside the search space.
 
@@ -30,6 +30,7 @@ class Particle:
         self.dim = dim
         self.bounds = bounds
         self.rng = rng
+        self.vmax_ratio = vmax_ratio
 
         low, high = bounds
         self.low = np.array(low, dtype=float)
@@ -41,7 +42,7 @@ class Particle:
         # Use a moderate initial velocity instead of the full search range.
         # This keeps the algorithm much more stable in dimensions such as 30.
         search_range = self.high - self.low
-        self.vmax = 0.2 * search_range
+        self.vmax = self.vmax_ratio * search_range
         self.velocity = rng.uniform(-self.vmax, self.vmax, dim)
 
         # Initialize personal best with the starting point.

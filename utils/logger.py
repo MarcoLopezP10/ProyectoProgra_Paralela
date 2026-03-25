@@ -56,7 +56,7 @@ def setup_logger(
     full_log_path = os.path.join(log_dir, log_file)
 
     formatter = ContextFormatter(
-        "%(asctime)s - %(objective)s - %(method)s - %(levelname)s - %(message)s"
+        "%(asctime)s | %(levelname)-5s | %(objective)s | %(method)s | %(message)s"
     )
 
     file_handler = logging.FileHandler(full_log_path)

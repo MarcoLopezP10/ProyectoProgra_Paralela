@@ -73,13 +73,15 @@ def parse_args(argv=None) -> argparse.Namespace:
     )
 
     # Hyperparameters
-    p.add_argument("--w",  type=float, default=0.7,  help="Inertia weight.")
-    p.add_argument("--c1", type=float, default=1.5,  help="Cognitive coefficient.")
-    p.add_argument("--c2", type=float, default=1.5,  help="Social coefficient.")
-    p.add_argument("--n-particles", type=int, default=80, help="Swarm size.")
-    p.add_argument("--max-iters",   type=int, default=500, help="Max iterations.")
-    p.add_argument("--tol",         type=float, default=1e-10, help="Convergence tolerance.")
-    p.add_argument("--patience",    type=int, default=30, help="Early-stop patience.")
+    p.add_argument("--w",  type=float, default=None,  help="Inertia weight.")
+    p.add_argument("--c1", type=float, default=None,  help="Cognitive coefficient.")
+    p.add_argument("--c2", type=float, default=None,  help="Social coefficient.")
+    p.add_argument("--n-particles", type=int, default=None, help="Swarm size.")
+    p.add_argument("--max-iters",   type=int, default=None, help="Max iterations.")
+    p.add_argument("--tol",         type=float, default=None, help="Convergence tolerance.")
+    p.add_argument("--patience",    type=int, default=None, help="Early-stop patience.")
+    p.add_argument("--vmax-ratio",  type=float, default=None,
+                   help="Initial velocity cap as a fraction of the search range.")
     p.add_argument("--log-every",   type=int, default=10,
                    help="Log a per-iteration line every N iters (0 = off).")
 
@@ -127,6 +129,7 @@ def main(argv=None) -> None:
                     max_iters=args.max_iters,
                     tol=args.tol,
                     patience=args.patience,
+                    vmax_ratio=args.vmax_ratio,
                     log_every=args.log_every,
                     out_dir=args.out_dir,
                     plots_dir=args.plots_dir,
