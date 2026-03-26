@@ -2,7 +2,8 @@
 
 Orchestrates a single PSO experiment:
   1. Optional grid search for hyperparameters.
-  2. Run V0 (sequential) and V1 (threading) with the same config and seed.
+  2. Run V0 (sequential), V1 (threading), and V2 (multiprocessing)
+     with the same config and seed.
   3. Run PySwarm baseline for reference.
   4. Save structured results (JSON + CSV) and convergence plot.
   5. Structured logging with per-iteration timing breakdown.
@@ -26,7 +27,7 @@ from core.swarm import Swarm
 from core.pso import PSO
 from options.bounds import ClampBounds
 from options.topology import GlobalBestTopology
-from parallel.evaluator import SequentialEvaluator, ThreadPoolEvaluator
+from parallel.evaluator import ProcessPoolEvaluator, SequentialEvaluator, ThreadPoolEvaluator
 from experiment.grid_search import recommended_profile, simple_grid_search
 from baseline.pswarm import run_pyswarm_baseline
 from utils.logger import setup_logger
@@ -60,6 +61,8 @@ class RunConfig:
     n_particles: Optional[int] = None
     use_grid_search: bool = False
     thread_max_workers: Optional[int] = None
+    process_max_workers: Optional[int] = None
+    batch_size: Optional[int] = None
 
     max_iters: Optional[int] = None
     tol: Optional[float] = None
@@ -153,11 +156,17 @@ def _print_table(
     v0_pct_eval: float, v0_pct_update: float,
     v1_fit: float, v1_iters: int, v1_time: float,
     v1_pct_eval: float, v1_pct_update: float,
+    v2_fit: float, v2_iters: int, v2_time: float,
+    v2_pct_eval: float, v2_pct_update: float,
     base_fit: float, base_iters: int, base_time: float,
     winner: str,
     thread_max_workers: Optional[int],
+    process_max_workers: Optional[int],
+    batch_size: Optional[int],
 ) -> None:
-    speedup = v0_time / v1_time if v1_time > 0 else float("inf")
+    v1_speedup = v0_time / v1_time if v1_time > 0 else float("inf")
+    v2_speedup = v0_time / v2_time if v2_time > 0 else float("inf")
+    baseline_speedup = v0_time / base_time if base_time > 0 else float("inf")
 
     hyper_rows = [
         ["objective", name],
@@ -168,17 +177,23 @@ def _print_table(
         ["c2", f"{c2:.3f}"],
         ["n_particles", n_particles],
         ["thread_max_workers", thread_max_workers or "default"],
+        ["process_max_workers", process_max_workers or "default"],
+        ["batch_size", batch_size or "auto"],
     ]
     result_rows = [
         ["V0 Sequential", f"{v0_fit:.6e}", v0_iters, f"{v0_time:.4f}",
-         f"{v0_pct_eval:.1f}%", f"{v0_pct_update:.1f}%"],
+         "1.000x", f"{v0_pct_eval:.1f}%", f"{v0_pct_update:.1f}%"],
         ["V1 Threading", f"{v1_fit:.6e}", v1_iters, f"{v1_time:.4f}",
-         f"{v1_pct_eval:.1f}%", f"{v1_pct_update:.1f}%"],
-        ["PySwarm baseline", f"{base_fit:.6e}", base_iters, f"{base_time:.4f}", "-", "-"],
+         f"{v1_speedup:.3f}x", f"{v1_pct_eval:.1f}%", f"{v1_pct_update:.1f}%"],
+        ["V2 Multiprocessing", f"{v2_fit:.6e}", v2_iters, f"{v2_time:.4f}",
+         f"{v2_speedup:.3f}x", f"{v2_pct_eval:.1f}%", f"{v2_pct_update:.1f}%"],
+        ["PySwarm baseline", f"{base_fit:.6e}", base_iters, f"{base_time:.4f}",
+         f"{baseline_speedup:.3f}x", "-", "-"],
     ]
     summary_rows = [
         ["Winner", winner],
-        ["V1 speedup vs V0", f"{speedup:.3f}x"],
+        ["V1 speedup vs V0", f"{v1_speedup:.3f}x"],
+        ["V2 speedup vs V0", f"{v2_speedup:.3f}x"],
     ]
 
     if PrettyTable is not None:
@@ -186,7 +201,7 @@ def _print_table(
         for r in hyper_rows: t.add_row(r)
         print(t)
 
-        t = PrettyTable(["Method", "Best fitness", "Iters", "Time (s)", "% eval", "% update"])
+        t = PrettyTable(["Method", "Best fitness", "Iters", "Time (s)", "Speedup", "% eval", "% update"])
         for r in result_rows: t.add_row(r)
         print(t)
 
@@ -196,7 +211,7 @@ def _print_table(
     else:
         for section, headers, rows in [
             ("Hyperparameters", ["Param", "Value"], hyper_rows),
-            ("Results", ["Method", "Best fitness", "Iters", "Time (s)", "% eval", "% update"], result_rows),
+            ("Results", ["Method", "Best fitness", "Iters", "Time (s)", "Speedup", "% eval", "% update"], result_rows),
             ("Summary", ["Metric", "Value"], summary_rows),
         ]:
             widths = [max(len(str(r[i])) for r in ([headers] + rows)) for i in range(len(headers))]
@@ -218,9 +233,9 @@ def run_one_objective(
     cfg: RunConfig,
 ) -> Dict[str, object]:
     """
-    Run a full V0+V1 experiment for a single objective function.
+    Run a full V0+V1+V2 experiment for a single objective function.
 
-    The seed is passed through to every PSO instance so that V0 and V1
+    The seed is passed through to every PSO instance so that V0, V1, and V2
     start from exactly the same swarm state and results are comparable.
 
     Parameters
@@ -292,7 +307,27 @@ def run_one_objective(
     v1_timing = v1_pso.timing_summary()
     v1_history = list(v1_pso.history)
 
-    # ── 4. PySwarm baseline ───────────────────────────────────────────
+    # ── 4. V2 — Multiprocessing ───────────────────────────────────────
+    v2_log = logging.LoggerAdapter(logger, {"objective": tag, "method": "V2"})
+    v2_pso = _build_pso(
+        cfg,
+        bounds,
+        w,
+        c1,
+        c2,
+        n_particles,
+        ProcessPoolEvaluator(
+            objective,
+            max_workers=cfg.process_max_workers,
+            batch_size=cfg.batch_size,
+        ),
+        v2_log,
+    )
+    v2_pos, v2_fit, v2_time, v2_iters = v2_pso.run()
+    v2_timing = v2_pso.timing_summary()
+    v2_history = list(v2_pso.history)
+
+    # ── 5. PySwarm baseline ───────────────────────────────────────────
     _, base_fit, base_time, base_iters = run_pyswarm_baseline(
         objective_function=objective,
         bounds=bounds,
@@ -301,14 +336,15 @@ def run_one_objective(
         max_iters=cfg.max_iters,
     )
 
-    # ── 5. Winner ─────────────────────────────────────────────────────
+    # ── 6. Winner ─────────────────────────────────────────────────────
     winner = _resolve_winner([
         ("V0 Sequential", float(v0_fit), float(v0_time)),
         ("V1 Threading", float(v1_fit), float(v1_time)),
+        ("V2 Multiprocessing", float(v2_fit), float(v2_time)),
         ("PySwarm", float(base_fit), float(base_time)),
     ])
 
-    # ── 6. Log summary ────────────────────────────────────────────────
+    # ── 7. Log summary ────────────────────────────────────────────────
     log.info(
         f"event=summary method=V0 fit={v0_fit:.6e} iters={v0_iters} "
         f"time_s={v0_time:.4f} eval_pct={v0_timing['pct_eval']:.1f} "
@@ -320,11 +356,18 @@ def run_one_objective(
         f"update_pct={v1_timing['pct_update']:.1f} speedup_vs_v0={v0_time/v1_time:.3f}x"
     )
     log.info(
+        f"event=summary method=V2 fit={v2_fit:.6e} iters={v2_iters} "
+        f"time_s={v2_time:.4f} eval_pct={v2_timing['pct_eval']:.1f} "
+        f"update_pct={v2_timing['pct_update']:.1f} speedup_vs_v0={v0_time/v2_time:.3f}x "
+        f"process_workers={cfg.process_max_workers or 'default'} "
+        f"batch_size={cfg.batch_size or 'auto'}"
+    )
+    log.info(
         f"event=summary method=PySwarm fit={base_fit:.6e} iters={base_iters} time_s={base_time:.4f}"
     )
     log.info(f"event=summary winner={winner}")
 
-    # ── 7. Console table ──────────────────────────────────────────────
+    # ── 8. Console table ──────────────────────────────────────────────
     _print_table(
         name=name, dim=cfg.dim, seed=cfg.seed,
         w=w, c1=c1, c2=c2, n_particles=n_particles,
@@ -332,11 +375,14 @@ def run_one_objective(
         v0_pct_eval=v0_timing["pct_eval"], v0_pct_update=v0_timing["pct_update"],
         v1_fit=float(v1_fit), v1_iters=v1_iters, v1_time=v1_time,
         v1_pct_eval=v1_timing["pct_eval"], v1_pct_update=v1_timing["pct_update"],
+        v2_fit=float(v2_fit), v2_iters=v2_iters, v2_time=v2_time,
+        v2_pct_eval=v2_timing["pct_eval"], v2_pct_update=v2_timing["pct_update"],
         base_fit=float(base_fit), base_iters=base_iters, base_time=base_time,
         winner=winner, thread_max_workers=cfg.thread_max_workers,
+        process_max_workers=cfg.process_max_workers, batch_size=cfg.batch_size,
     )
 
-    # ── 8. Save results ───────────────────────────────────────────────
+    # ── 9. Save results ───────────────────────────────────────────────
     if cfg.save_files:
         # Convergence plot
         plot_path = os.path.join(cfg.plots_dir, f"{name}_d{cfg.dim}_s{cfg.seed}_convergence.png")
@@ -346,6 +392,7 @@ def run_one_objective(
             title=f"Convergence — {name} d={cfg.dim} seed={cfg.seed}",
             out_path=plot_path,
             threaded_history=v1_history,
+            process_history=v2_history,
         )
 
         # Structured results directory: results/sphere_d2_s42/
@@ -375,6 +422,13 @@ def run_one_objective(
                 timing=TimingBreakdown(**v1_timing),
                 max_workers=cfg.thread_max_workers,
             ),
+            v2=MethodResult(
+                best_fitness=float(v2_fit),
+                iterations=v2_iters,
+                timing=TimingBreakdown(**v2_timing),
+                max_workers=cfg.process_max_workers,
+                batch_size=cfg.batch_size,
+            ),
             baseline=MethodResult(
                 best_fitness=float(base_fit),
                 iterations=base_iters,
@@ -382,14 +436,22 @@ def run_one_objective(
             ),
             winner=winner,
             notes=(
-                "V1 uses ThreadPoolExecutor. For small NumPy objectives the GIL "
-                "limits gains and thread overhead dominates. Speedup expected only "
-                "for I/O-bound or large-compute kernels."
+                "V1 uses ThreadPoolExecutor and is mainly a concurrency baseline. "
+                "V2 uses ProcessPoolExecutor with batched particle evaluation to "
+                "reduce pickling and IPC overhead while preserving the same PSO "
+                "search behaviour as V0."
             ),
         )
-        save_summary_json(summary, os.path.join(rdir, "summary.json"))
-        save_history_csv(v0_history, os.path.join(rdir, "history_v0.csv"))
-        save_history_csv(v1_history, os.path.join(rdir, "history_v1.csv"))
+        summary_path = os.path.join(rdir, "summary.json")
+        history_v0_path = os.path.join(rdir, "history_v0.csv")
+        history_v1_path = os.path.join(rdir, "history_v1.csv")
+        history_v2_path = os.path.join(rdir, "history_v2.csv")
+
+        save_summary_json(summary, summary_path)
+        save_history_csv(v0_history, history_v0_path)
+        save_history_csv(v1_history, history_v1_path)
+        save_history_csv(v2_history, history_v2_path)
+
     else:
         plot_path = None
 
@@ -403,9 +465,13 @@ def run_one_objective(
         "v1": {"best_pos": v1_pos, "best_fit": v1_fit,
                "time_s": v1_time, "iters": v1_iters, "timing": v1_timing,
                "max_workers": cfg.thread_max_workers},
+        "v2": {"best_pos": v2_pos, "best_fit": v2_fit,
+               "time_s": v2_time, "iters": v2_iters, "timing": v2_timing,
+               "max_workers": cfg.process_max_workers, "batch_size": cfg.batch_size},
         "baseline": {"best_fit": base_fit, "time_s": base_time, "iters": base_iters},
         "winner": winner,
         "history_v0": v0_history,
         "history_v1": v1_history,
+        "history_v2": v2_history,
         "plot_path": plot_path,
     }

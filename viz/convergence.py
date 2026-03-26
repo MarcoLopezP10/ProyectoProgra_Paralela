@@ -1,6 +1,6 @@
 """viz.convergence
 
-Minimal visualization for V0:
+Minimal visualization for V0/V1/V2:
 - Convergence curve (best fitness vs iteration)
 - Horizontal reference line for the baseline (PySwarm)
 
@@ -19,34 +19,69 @@ def save_convergence_plot(
     title: str,
     out_path: str,
     threaded_history: Optional[List[float]] = None,
+    process_history: Optional[List[float]] = None,
     y_log_if_possible: bool = True
 ) -> None:
-    """Guarda un plot simple de convergencia."""
+    """Save a polished convergence plot for V0/V1/V2 comparisons."""
     import matplotlib.pyplot as plt
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-    plt.figure(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(9.5, 5.8))
+    ax.set_facecolor("#fbfbfd")
 
-    plt.plot(history, linewidth=2.5, label="Custom PSO (Sequential)")
+    # Use distinct styles so overlapping histories can still be identified.
+    ax.plot(
+        history,
+        linewidth=2.8,
+        color="#1f77b4",
+        linestyle="-",
+        label="V0: Sequential",
+        zorder=2,
+    )
     if threaded_history:
-        plt.plot(threaded_history, linewidth=2.5, label="Custom PSO (Threading)")
-    plt.axhline(
+        ax.plot(
+            threaded_history,
+            linewidth=2.3,
+            color="#ff7f0e",
+            linestyle="--",
+            label="V1: Threading",
+            zorder=3,
+        )
+    if process_history:
+        ax.plot(
+            process_history,
+            linewidth=2.3,
+            color="#2ca02c",
+            linestyle=":",
+            marker="o",
+            markersize=3.5,
+            markevery=max(1, len(process_history) // 12),
+            label="V2: Multiprocessing",
+            zorder=4,
+        )
+    ax.axhline(
         y=baseline_final_fitness,
         linestyle="--",
-        linewidth=2.5,
-        label="PySwarm Final Fitness",
+        linewidth=2.0,
+        color="#7f7f7f",
+        alpha=0.85,
+        label="PySwarm: Final Fitness",
     )
 
-    plt.xlabel("Iteration", fontsize=11)
-    plt.ylabel("Best Fitness", fontsize=11)
-    plt.title(title, fontsize=12)
-    plt.grid(True, linestyle="--", alpha=0.6)
+    ax.set_xlabel("Iteration", fontsize=11)
+    ax.set_ylabel("Best Fitness", fontsize=11)
+    ax.set_title(title, fontsize=13, pad=12)
+    ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.35)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
-    #Only uso log if there at not any 0's
+    # Use log scale only when every visible value is strictly positive.
     positive_values = list(history)
     if threaded_history:
         positive_values.extend(threaded_history)
+    if process_history:
+        positive_values.extend(process_history)
 
     if (
         y_log_if_possible
@@ -54,9 +89,9 @@ def save_convergence_plot(
         and min(positive_values) > 0
         and baseline_final_fitness > 0
     ):
-        plt.yscale("log")
+        ax.set_yscale("log")
 
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=300)
-    plt.close()
+    ax.legend(frameon=True, facecolor="white", edgecolor="#d9d9e3")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)

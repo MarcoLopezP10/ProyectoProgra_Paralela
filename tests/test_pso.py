@@ -25,6 +25,7 @@ from core.pso import PSO
 from options.bounds import ClampBounds
 from options.evaluator import SequentialEvaluator
 from options.topology import GlobalBestTopology
+from parallel.evaluator import ProcessPoolEvaluator
 from objectives.sphere import sphere
 from objectives.ackley import ackley
 from objectives.rosenbrock import rosenbrock
@@ -48,6 +49,7 @@ def _make_pso(
     seed: int = 42,
     tol: float = 1e-10,
     patience: int = 50,
+    evaluator=None,
 ) -> PSO:
     """Build a ready-to-run PSO instance."""
     bounds = ([bounds_lo] * dim, [bounds_hi] * dim)
@@ -55,7 +57,7 @@ def _make_pso(
     swarm = Swarm(n_particles=n_particles, dim=dim, bounds=bounds, rng=rng)
     return PSO(
         swarm=swarm,
-        evaluator=SequentialEvaluator(objective_fn),
+        evaluator=SequentialEvaluator(objective_fn) if evaluator is None else evaluator,
         bounds_handler=ClampBounds(bounds[0], bounds[1]),
         topology=GlobalBestTopology(),
         w=w, c1=c1, c2=c2,
@@ -117,6 +119,47 @@ class TestReproducibility:
         _, fit_a, _, _ = pso_a.run()
         _, fit_b, _, _ = pso_b.run()
         assert fit_a == fit_b
+
+
+class TestMultiprocessingEvaluator:
+    """V2 must preserve the same mathematical result as the sequential path."""
+
+    def test_process_evaluator_matches_sequential_fitness_list(self):
+        positions = [
+            np.array([1.0, 1.0]),
+            np.array([2.0, 0.0]),
+            np.array([0.0, 3.0]),
+            np.array([1.0, 2.0]),
+        ]
+
+        sequential = SequentialEvaluator(sphere).evaluate(positions)
+        process_eval = ProcessPoolEvaluator(sphere, max_workers=2, batch_size=2)
+        process_eval.open()
+        try:
+            parallel = process_eval.evaluate(positions)
+        finally:
+            process_eval.close()
+
+        assert parallel == sequential
+
+    def test_process_pso_matches_sequential_for_same_seed(self):
+        pso_v0 = _make_pso(sphere, dim=4, n_particles=12, max_iters=60, seed=21)
+        pso_v2 = _make_pso(
+            sphere,
+            dim=4,
+            n_particles=12,
+            max_iters=60,
+            seed=21,
+            evaluator=ProcessPoolEvaluator(sphere, max_workers=2, batch_size=3),
+        )
+
+        pos_v0, fit_v0, _, iters_v0 = pso_v0.run()
+        pos_v2, fit_v2, _, iters_v2 = pso_v2.run()
+
+        assert fit_v2 == pytest.approx(fit_v0)
+        assert iters_v2 == iters_v0
+        np.testing.assert_allclose(pos_v2, pos_v0)
+        assert pso_v2.history == pytest.approx(pso_v0.history)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

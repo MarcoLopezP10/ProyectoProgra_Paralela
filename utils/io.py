@@ -43,6 +43,7 @@ class MethodResult:
     iterations: int = 0
     timing: TimingBreakdown = field(default_factory=TimingBreakdown)
     max_workers: Optional[int] = None   # only relevant for thread/process variants
+    batch_size: Optional[int] = None
 
 
 @dataclass
@@ -69,6 +70,7 @@ class ExperimentSummary:
     # ── Results per method ────────────────────────────────────────────
     v0: MethodResult = field(default_factory=MethodResult)
     v1: Optional[MethodResult] = None
+    v2: Optional[MethodResult] = None
     baseline: Optional[MethodResult] = None
 
     winner: str = ""

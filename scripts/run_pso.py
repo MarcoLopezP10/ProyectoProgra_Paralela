@@ -1,6 +1,7 @@
 """scripts.run_pso
 
-Entry point for a single reproducible PSO run (V0 + V1 + PySwarm baseline).
+Entry point for a single reproducible PSO run
+(V0 + V1 + V2 + PySwarm baseline).
 
 Usage examples
 --------------
@@ -40,7 +41,7 @@ OBJECTIVES = {
 
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Run PSO (V0 sequential + V1 threading) on benchmark functions.",
+        description="Run PSO (V0 sequential + V1 threading + V2 multiprocessing) on benchmark functions.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -88,6 +89,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     # Threading
     p.add_argument("--workers", type=int, default=None,
                    help="Max workers for ThreadPoolExecutor (None = auto).")
+    p.add_argument("--process-workers", type=int, default=None,
+                   help="Max workers for ProcessPoolExecutor (None = auto).")
+    p.add_argument("--batch-size", type=int, default=None,
+                   help="Particles per process task in V2 (None = auto).")
 
     # Grid search
     p.add_argument("--grid-search", action="store_true",
@@ -126,6 +131,8 @@ def main(argv=None) -> None:
                     n_particles=args.n_particles,
                     use_grid_search=args.grid_search,
                     thread_max_workers=args.workers,
+                    process_max_workers=args.process_workers,
+                    batch_size=args.batch_size,
                     max_iters=args.max_iters,
                     tol=args.tol,
                     patience=args.patience,

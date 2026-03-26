@@ -51,7 +51,7 @@ DEFAULT_SEEDS = [42, 7]
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(
-        description="Run the full PSO benchmark suite (V0 + V1 + PySwarm baseline).",
+        description="Run the full PSO benchmark suite (V0 + V1 + V2 + PySwarm baseline).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--objective", nargs="+", choices=list(OBJECTIVES),
@@ -73,6 +73,10 @@ def parse_args(argv=None):
                    help="Per-iteration log frequency (0 = off, keeps output clean).")
     p.add_argument("--workers",     type=int, default=None,
                    help="Max workers for ThreadPoolExecutor.")
+    p.add_argument("--process-workers", type=int, default=None,
+                   help="Max workers for ProcessPoolExecutor.")
+    p.add_argument("--batch-size", type=int, default=None,
+                   help="Particles per process task in V2.")
     p.add_argument("--grid-search", action="store_true",
                    help="Use grid search to pick hyperparameters (slower).")
     p.add_argument("--no-grid-search", dest="grid_search", action="store_false")
@@ -97,6 +101,10 @@ CSV_FIELDS = [
     "v1_fitness", "v1_iters", "v1_time_s",
     "v1_pct_eval", "v1_pct_update",
     "v1_speedup",
+    "v2_fitness", "v2_iters", "v2_time_s",
+    "v2_pct_eval", "v2_pct_update",
+    "v2_speedup",
+    "process_workers", "batch_size",
     "baseline_fitness", "baseline_time_s",
     "winner",
 ]
@@ -107,7 +115,9 @@ def _result_to_row(result: dict) -> dict:
     v1 = result["v1"]
     bl = result["baseline"]
     hp = result["hyperparams"]
-    speedup = v0["time_s"] / v1["time_s"] if v1["time_s"] > 0 else float("inf")
+    v1_speedup = v0["time_s"] / v1["time_s"] if v1["time_s"] > 0 else float("inf")
+    v2 = result["v2"]
+    v2_speedup = v0["time_s"] / v2["time_s"] if v2["time_s"] > 0 else float("inf")
     return {
         "objective":    result["objective"],
         "dim":          result["dim"],
@@ -126,7 +136,15 @@ def _result_to_row(result: dict) -> dict:
         "v1_time_s":    round(v1["time_s"], 5),
         "v1_pct_eval":  round(v1["timing"]["pct_eval"], 2),
         "v1_pct_update":round(v1["timing"]["pct_update"], 2),
-        "v1_speedup":   round(speedup, 4),
+        "v1_speedup":   round(v1_speedup, 4),
+        "v2_fitness":   v2["best_fit"],
+        "v2_iters":     v2["iters"],
+        "v2_time_s":    round(v2["time_s"], 5),
+        "v2_pct_eval":  round(v2["timing"]["pct_eval"], 2),
+        "v2_pct_update":round(v2["timing"]["pct_update"], 2),
+        "v2_speedup":   round(v2_speedup, 4),
+        "process_workers": v2["max_workers"],
+        "batch_size":   v2["batch_size"],
         "baseline_fitness": bl["best_fit"],
         "baseline_time_s":  round(bl["time_s"], 5),
         "winner":       result["winner"],
@@ -164,6 +182,8 @@ def main(argv=None) -> None:
                     n_particles=args.n_particles,
                     use_grid_search=args.grid_search,
                     thread_max_workers=args.workers,
+                    process_max_workers=args.process_workers,
+                    batch_size=args.batch_size,
                     max_iters=args.max_iters,
                     tol=args.tol,
                     patience=args.patience,

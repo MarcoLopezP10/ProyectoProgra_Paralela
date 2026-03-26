@@ -27,7 +27,7 @@ This project implements the canonical PSO algorithm for minimising continuous fu
 |---|---|---|
 | V0 | Sequential | Baseline — one particle at a time |
 | V1 | Threading | `ThreadPoolExecutor` — concurrent evaluation |
-| V2 | Multiprocessing | `ProcessPoolExecutor` — true parallelism *(coming)* |
+| V2 | Multiprocessing | `ProcessPoolExecutor` — true parallelism with batched evaluation |
 | V3 | Asyncio | Cooperative concurrency for I/O-bound evaluation *(coming)* |
 | V4 | NumPy vectorised | Implicit parallelism via matrix operations *(coming)* |
 
@@ -50,7 +50,7 @@ PRACTICA-2.2/
 │   └── topology.py             # Topology (ABC) + GlobalBestTopology
 │
 ├── parallel/                   # Parallel/concurrent evaluators
-│   └── evaluator.py            # ThreadPoolEvaluator (V1)
+│   └── evaluator.py            # ThreadPoolEvaluator (V1) + ProcessPoolEvaluator (V2)
 │
 ├── objectives/                 # Benchmark functions
 │   ├── sphere.py               # Sphere — unimodal, convex
@@ -60,7 +60,7 @@ PRACTICA-2.2/
 │
 ├── experiment/                 # Experiment orchestration
 │   ├── grid_search.py          # Multi-seed grid search
-│   └── run_single.py           # Single experiment runner (V0 + V1 + baseline)
+│   └── run_single.py           # Single experiment runner (V0 + V1 + V2 + baseline)
 │
 ├── baseline/                   # External reference
 │   └── pswarm.py               # PySwarm library wrapper
@@ -105,8 +105,8 @@ scripts/make_viz.py ────────────────────
                                               │
                                    ┌──────────┴──────────┐
                                    ▼                     ▼
-                             SequentialEvaluator   ThreadPoolEvaluator
-                             (V0 — options/)       (V1 — parallel/)
+                             SequentialEvaluator   ThreadPoolEvaluator / ProcessPoolEvaluator
+                             (V0 — options/)       (V1 / V2 — parallel/)
                                    │
                                    ▼
                              objectives/
@@ -115,7 +115,7 @@ scripts/make_viz.py ────────────────────
 
 ### Key abstractions
 
-**`FitnessEvaluator` (ABC)** — defined in `options/evaluator.py`. Single method: `evaluate(positions) -> List[float]`. PSO calls this once per iteration without knowing whether evaluation is sequential, threaded, or vectorised. This is what makes swapping V0/V1/V2/… completely transparent.
+**`FitnessEvaluator` (ABC)** — defined in `options/evaluator.py`. Single method: `evaluate(positions) -> List[float]`. PSO calls this once per iteration without knowing whether evaluation is sequential, threaded, process-based, or vectorised. This is what makes swapping V0/V1/V2/… completely transparent.
 
 **`BoundsPolicy` (ABC)** — defined in `options/bounds.py`. Single method: `apply(position, velocity) -> (position, velocity)`. PSO applies this after every position update. Currently implemented by `ClampBounds`. `ReflectBounds` or `PenaltyBounds` can be added without modifying the core.
 
@@ -162,7 +162,7 @@ version-to-version comparisons fair:
   even though this project currently uses only the global-best variant.
 
 This separation is important for software engineering quality, but also for
-experimental validity: if V0 and V1 use the same seed, same swarm size, same
+experimental validity: if V0, V1, and V2 use the same seed, same swarm size, same
 coefficients, same bounds and same topology, then any observed difference can
 be attributed to the evaluation strategy rather than to hidden algorithmic
 changes.
@@ -226,6 +226,8 @@ dependency. Some modules such as `prettytable`, `matplotlib`, `pyswarm`,
 | `--vmax-ratio` | auto | Velocity cap as a fraction of the search range |
 | `--grid-search` | off | Enable hyperparameter grid search |
 | `--workers` | auto | Max threads for V1 ThreadPoolExecutor |
+| `--process-workers` | auto | Max processes for V2 ProcessPoolExecutor |
+| `--batch-size` | auto | Particles per process task in V2 |
 | `--no-save` | off | Skip saving files to disk |
 
 If `--w`, `--c1`, `--c2`, `--n-particles`, `--max-iters`, `--patience`,
@@ -247,6 +249,8 @@ defaults automatically based on the objective function and dimension.
 | `--patience` | auto | Early-stop patience override |
 | `--vmax-ratio` | auto | Velocity cap override |
 | `--workers` | auto | Max threads for V1 |
+| `--process-workers` | auto | Max processes for V2 |
+| `--batch-size` | auto | Particles per process task in V2 |
 | `--grid-search` | off | Tune hyperparameters before each run |
 | `--summary-csv` | `results/benchmark_summary.csv` | Aggregated CSV output |
 
@@ -290,7 +294,7 @@ search space chosen for each objective function.
 | `--resolution` | `120` | Contour-grid resolution |
 | `--max-frames` | none | Optional frame cap |
 
-### Recommended way to compare V0 and V1
+### Recommended way to compare V0, V1, and V2
 
 For a fair comparison between versions:
 
@@ -299,8 +303,8 @@ For a fair comparison between versions:
 3. Compare both solution quality (`best_fitness`) and runtime (`time_s`).
 4. Use multiple seeds when drawing conclusions about performance.
 
-This project is explicitly designed so that V0 and V1 share the same PSO logic
-and differ only in the fitness evaluation strategy.
+This project is explicitly designed so that V0, V1, and V2 share the same PSO
+logic and differ only in the fitness evaluation strategy.
 
 ---
 
@@ -332,6 +336,34 @@ Important trade-off:
 
 The project therefore uses V1 as a concurrency comparison point, not as a
 guaranteed speedup.
+
+### V2 — Multiprocessing (`ProcessPoolExecutor`)
+
+V2 also preserves exactly the same PSO dynamics as V0. The difference is that
+fitness evaluation is delegated to separate OS processes, which bypass the GIL
+and provide true CPU parallelism.
+
+Important trade-offs:
+
+- Spawning processes and sending particle positions across process boundaries
+  introduces pickling and inter-process communication (IPC) overhead.
+- For that reason, V2 uses batching: each submitted task evaluates a block of
+  particles instead of a single particle.
+- Batching reduces the number of IPC operations and usually improves V2
+  compared to a one-particle-per-task design.
+
+The project therefore uses V2 as the true-parallel baseline for CPU-bound
+evaluation, while explicitly measuring whether that extra machinery pays off.
+
+**When V2 is more likely to help:**
+- CPU-bound objective functions whose per-particle evaluation is expensive
+- Larger swarms and higher dimensions, where each submitted task does enough work
+- Configurations where batching is tuned well enough to amortise IPC overhead
+
+**When V2 may still lose against V0:**
+- Very cheap objective functions such as small benchmark kernels
+- Small swarms or very short runs
+- Cases where the sequential particle-update step remains the dominant cost
 
 ---
 
@@ -419,10 +451,6 @@ This is confirmed by the timing breakdown: in V0, evaluation takes ~14–40% of 
 - I/O-bound evaluation (API calls, file reads, database queries) — the GIL is released during I/O, so threads can genuinely overlap
 - Very expensive per-particle computation that releases the GIL (large NumPy operations on big arrays)
 
-### V2 — Multiprocessing *(coming)*
-
-`ProcessPoolExecutor` — separate OS processes bypass the GIL entirely, achieving true CPU parallelism. Cost: pickling overhead and inter-process communication (IPC). Will use batching (sending blocks of particles per task) to amortise that cost.
-
 ### V3 — Asyncio *(coming)*
 
 Cooperative concurrency. Only makes sense when evaluation is I/O-bound — for example, each particle queries a local service with variable latency. Uses `asyncio.gather()` to overlap waiting times.
@@ -466,11 +494,14 @@ Default hyperparameters: `w=0.7, c1=1.5, c2=1.5, n_particles=80, max_iters=500, 
 | Rastrigin | 10 | 5.97e+00 | 5.97e+00 | 3.98e+00 | PySwarm |
 | Rastrigin | 30 | 8.46e+01 | 8.46e+01 | 8.07e+01 | PySwarm |
 
-**Key observation:** V0 and V1 always reach exactly the same fitness. The parallelism strategy does not affect solution quality — only execution time. This confirms the abstraction works correctly: swapping the evaluator changes nothing algorithmically.
+**Key observation:** V0, V1, and V2 reach exactly the same fitness whenever the
+same seed and hyperparameters are used. The evaluation strategy does not affect
+solution quality — only execution time. This confirms the abstraction works
+correctly: swapping the evaluator changes nothing algorithmically.
 
 PySwarm wins on multimodal functions at high dimension (Ackley d=30, Rastrigin d=10/30, Rosenbrock d=30) because our PSO uses fixed hyperparameters not tuned for those cases. With grid search the gap closes significantly.
 
-### Timing comparison
+### Timing comparison (V0 vs V1 baseline study)
 
 | Function | d | V0 time (s) | V1 time (s) | V1 speedup | V0 % eval | V1 % eval |
 |---|---|---|---|---|---|---|
@@ -497,6 +528,51 @@ PySwarm wins on multimodal functions at high dimension (Ackley d=30, Rastrigin d
 
 **4. V0 `% update` dominates (~60–80%).** Particle position and velocity updates are the main bottleneck in the sequential version — not fitness evaluation. This suggests V4 (vectorised updates) could yield the biggest speedup.
 
+### V2 validation and batching results
+
+After implementing V2 with `ProcessPoolExecutor`, the first validation step was
+to check correctness rather than speed. In every manual test performed, V0, V1,
+and V2 reached exactly the same `best_fitness` with the same seed and
+hyperparameters. This is the expected behaviour: V2 changes how the fitness is
+computed, not the PSO algorithm itself.
+
+Representative runs:
+
+| Function | d | V0 fitness | V1 fitness | V2 fitness | V0 time (s) | V1 time (s) | V2 time (s) |
+|---|---|---|---|---|---|---|---|
+| Sphere | 2 | 7.63e-05 | 7.63e-05 | 7.63e-05 | 0.015 | 0.033 | 1.015 |
+| Sphere | 30 | 4.97e-12 | 4.97e-12 | 4.97e-12 | 2.319 | 3.399 | 5.446 |
+| Rastrigin | 30 | 3.38e+01 | 3.38e+01 | 3.38e+01 | 5.642 | 8.986 | 13.754 |
+| Ackley | 30 | 8.42e-03 | 8.42e-03 | 8.42e-03 | 8.123 | 13.649 | 9.390 |
+
+These runs show two useful conclusions:
+
+1. V2 is correct: it preserves the exact same optimisation result as V0.
+2. V2 is not automatically faster: for lightweight or moderately sized
+   objective functions, process startup, pickling, and IPC can dominate the
+   runtime.
+
+To reduce that overhead, V2 uses batching. The following measurements were made
+on `Ackley`, `d=30`, `n_particles=160`, `max_iters=400`, `process_workers=4`:
+
+| Batch size | V2 time (s) | V2 speedup vs V0 |
+|---|---|---|
+| 8 | 10.586 | 0.569x |
+| 16 | 9.146 | 0.660x |
+| 32 | 7.261 | 0.893x |
+| 64 | 7.835 | 0.753x |
+
+This behaviour is exactly what the theory predicts:
+
+- Small batches generate too many process tasks and too much IPC.
+- Medium batches amortise overhead better.
+- Very large batches start to reduce load balancing and can lose some benefit.
+
+For the tested configuration, `batch_size=32` was the best V2 setting. Even
+there, V2 did not outperform V0, but it clearly improved over worse
+multiprocessing configurations. This validates batching as a real optimisation,
+even when it is not enough to beat the sequential baseline.
+
 ### With grid search (d=2, optimised hyperparameters)
 
 | Function | Default fitness | Grid search fitness | Hyperparams found |
@@ -522,7 +598,10 @@ The most important engineering and experimental trade-offs of the project are:
 - Concurrency vs actual speedup: V1 improves modularity and demonstrates a
   concurrent strategy, but does not necessarily outperform V0 on small
   CPU-bound benchmark functions.
-- Simplicity vs feature coverage: this first stage focuses on a solid V0/V1
+- Multiprocessing vs IPC overhead: V2 bypasses the GIL and enables true CPU
+  parallelism, but process startup, pickling, and inter-process communication
+  can offset the gains.
+- Simplicity vs feature coverage: this stage focuses on a solid V0/V1/V2
   implementation instead of prematurely adding many incomplete variants.
 
 ### Current limitations
@@ -530,13 +609,16 @@ The most important engineering and experimental trade-offs of the project are:
 This repository intentionally focuses on the first stage of the project. The
 main current limitations are:
 
-- Only V0 (sequential) and V1 (threading) are implemented.
+- V3 (`asyncio`) and V4 (vectorised NumPy) are still future work.
 - The topology currently available is global-best only.
 - Configuration is currently handled through CLI arguments rather than external
   YAML/JSON configuration files.
 - The external baseline depends on `pyswarm` being installed.
-- Threading is primarily included as an architectural and experimental
-  comparison, not as a guaranteed performance improvement on all workloads.
+- Threading and multiprocessing are primarily included as architectural and
+  experimental comparisons, not as guaranteed performance improvements on all
+  workloads.
+- V2 only parallelises the fitness evaluation phase. Particle updates remain
+  sequential and are still a major bottleneck in many runs.
 
 These limitations are acceptable for the current stage because the project
 already provides a complete, testable, instrumented and comparable PSO system.
@@ -581,6 +663,10 @@ The logger writes exclusively to `logs/pso_summary.log`. Console output is handl
 2026-03-18 10:34:08 - --SPHERE-- - V0 - INFO - iter=10 | best=1.23e-05 | t_eval=0.42ms
 ```
 
+The `method` field distinguishes at least `RUN`, `V0`, `V1`, and `V2`, which
+allows the same experiment to be traced separately for sequential, threaded,
+and multiprocessing evaluation.
+
 ### Early stopping: tolerance + patience
 
 Stop if the global best improves by less than `tol=1e-10` for `patience=30` consecutive iterations. Most runs converge well before 500 iterations. Aggressive patience risks stopping prematurely; the defaults were chosen to balance speed and quality across all four functions.
@@ -592,8 +678,8 @@ Stop if the global best improves by less than `tol=1e-10` for `patience=30` cons
 Reproducibility is treated as a core requirement of the project:
 
 - Every run is parameterised by an explicit random seed.
-- V0 and V1 are launched with the same configuration and same seed so their
-  results are directly comparable.
+- V0, V1, and V2 are launched with the same configuration and same seed so
+  their results are directly comparable.
 - Structured outputs are saved to disk in `results/` and `logs/`.
 - The unit tests explicitly check reproducibility by seed.
 
@@ -612,6 +698,11 @@ support debugging and analysis:
   overhead.
 - Results are also persisted as JSON summaries and CSV convergence histories.
 
+This timing breakdown is especially important for interpreting V2. A correct
+multiprocessing implementation can still be slower than V0 in total wall-clock
+time if process overhead is high and the sequential particle-update phase
+remains dominant.
+
 This observability layer is useful both for software engineering quality and for
 the later experimental report.
 
@@ -621,7 +712,9 @@ Every experiment is fully reproducible by seed.
 
 The seed is recorded in three places: `summary.json` under `"seed"`, the log file (`PSO start | seed=42 ...`), and the result directory name (`sphere_d2_s42/`).
 
-V0 and V1 always use the same seed, so they start from identical swarm states. In all experiments they reach exactly the same fitness, confirming that the evaluator swap is algorithmically transparent.
+V0, V1, and V2 always use the same seed, so they start from identical swarm
+states. In all experiments performed so far they reach exactly the same
+fitness, confirming that the evaluator swap is algorithmically transparent.
 
 To reproduce any experiment exactly:
 
