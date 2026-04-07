@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pso-v2"
+version = "2.0.0"
+description = "Particle Swarm Optimization testbed with reproducible V0/V1/V2 evaluation strategies."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Marco Lopez Prieto" }
+]
+dependencies = [
+  "numpy>=1.24",
+  "matplotlib>=3.7",
+  "prettytable>=3.10",
+  "pillow>=10.0",
+  "pyswarm>=0.6",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.setuptools]
+packages = [
+  "baseline",
+  "core",
+  "experiment",
+  "objectives",
+  "options",
+  "parallel",
+  "scripts",
+  "utils",
+  "viz",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -47,13 +47,23 @@ def setup_logger(
     """
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
+    logger.propagate = False
+    full_log_path = os.path.abspath(os.path.join(log_dir, log_file))
 
-    # Prevent duplicated handlers if this function is called multiple times.
     if logger.handlers:
-        return logger
+        existing_paths = {
+            os.path.abspath(getattr(handler, "baseFilename", ""))
+            for handler in logger.handlers
+            if isinstance(handler, logging.FileHandler)
+        }
+        if existing_paths == {full_log_path}:
+            return logger
+
+        for handler in list(logger.handlers):
+            handler.close()
+            logger.removeHandler(handler)
 
     os.makedirs(log_dir, exist_ok=True)
-    full_log_path = os.path.join(log_dir, log_file)
 
     formatter = ContextFormatter(
         "%(asctime)s | %(levelname)-5s | %(objective)s | %(method)s | %(message)s"

@@ -2,7 +2,7 @@
 
 Full benchmark suite: 4 objectives * 3 dimensions * N seeds.
 
-Produces structured results under results/ and a summary CSV
+Produces structured results under results/runs/ and a summary CSV
 that can be loaded directly into the analysis notebook.
 
 Usage examples
@@ -25,8 +25,16 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import sys
 import time
+from pathlib import Path
 from typing import List
+
+# Allow direct execution as `python scripts/run_benchmarks.py` from editors like
+# VS Code while keeping `python -m scripts.run_benchmarks` working unchanged.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from experiment.run_single import RunConfig, run_one_objective
 from objectives.sphere import sphere
@@ -49,7 +57,7 @@ DEFAULT_SEEDS = [42, 7]
 # CLI
 # ──────────────────────────────────────────────────────────────────────────────
 
-def parse_args(argv=None):
+def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Run the full PSO benchmark suite (V0 + V1 + V2 + PySwarm baseline).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -81,7 +89,12 @@ def parse_args(argv=None):
                    help="Use grid search to pick hyperparameters (slower).")
     p.add_argument("--no-grid-search", dest="grid_search", action="store_false")
     p.set_defaults(grid_search=False)
-    p.add_argument("--out-dir",   default="results")
+    p.add_argument("--grid-strategy", choices=["v0", "v1", "v2"], default="v0",
+                   help="Strategy used during the optional grid search.")
+    p.add_argument("--grid-metric", choices=["final_fitness", "auc", "convergence_iter", "time_s"],
+                   default="final_fitness",
+                   help="Metric minimized during the optional grid search.")
+    p.add_argument("--out-dir",   default="results/runs")
     p.add_argument("--plots-dir", default="logs/convergence")
     p.add_argument("--log-dir",   default="logs")
     p.add_argument("--summary-csv", default="results/benchmark_summary.csv",
@@ -97,14 +110,18 @@ CSV_FIELDS = [
     "objective", "dim", "seed",
     "w", "c1", "c2", "n_particles",
     "v0_fitness", "v0_iters", "v0_time_s",
+    "v0_auc", "v0_convergence_iter",
     "v0_pct_eval", "v0_pct_update",
     "v1_fitness", "v1_iters", "v1_time_s",
+    "v1_auc", "v1_convergence_iter",
     "v1_pct_eval", "v1_pct_update",
     "v1_speedup",
     "v2_fitness", "v2_iters", "v2_time_s",
+    "v2_auc", "v2_convergence_iter",
     "v2_pct_eval", "v2_pct_update",
     "v2_speedup",
     "process_workers", "batch_size",
+    "selected_grid_metric",
     "baseline_fitness", "baseline_time_s",
     "winner",
 ]
@@ -129,22 +146,29 @@ def _result_to_row(result: dict) -> dict:
         "v0_fitness":   v0["best_fit"],
         "v0_iters":     v0["iters"],
         "v0_time_s":    round(v0["time_s"], 5),
+        "v0_auc":       round(v0["auc"], 6),
+        "v0_convergence_iter": v0["convergence_iter"],
         "v0_pct_eval":  round(v0["timing"]["pct_eval"], 2),
         "v0_pct_update":round(v0["timing"]["pct_update"], 2),
         "v1_fitness":   v1["best_fit"],
         "v1_iters":     v1["iters"],
         "v1_time_s":    round(v1["time_s"], 5),
+        "v1_auc":       round(v1["auc"], 6),
+        "v1_convergence_iter": v1["convergence_iter"],
         "v1_pct_eval":  round(v1["timing"]["pct_eval"], 2),
         "v1_pct_update":round(v1["timing"]["pct_update"], 2),
         "v1_speedup":   round(v1_speedup, 4),
         "v2_fitness":   v2["best_fit"],
         "v2_iters":     v2["iters"],
         "v2_time_s":    round(v2["time_s"], 5),
+        "v2_auc":       round(v2["auc"], 6),
+        "v2_convergence_iter": v2["convergence_iter"],
         "v2_pct_eval":  round(v2["timing"]["pct_eval"], 2),
         "v2_pct_update":round(v2["timing"]["pct_update"], 2),
         "v2_speedup":   round(v2_speedup, 4),
         "process_workers": v2["max_workers"],
         "batch_size":   v2["batch_size"],
+        "selected_grid_metric": result.get("selected_grid_metric"),
         "baseline_fitness": bl["best_fit"],
         "baseline_time_s":  round(bl["time_s"], 5),
         "winner":       result["winner"],
@@ -164,7 +188,7 @@ def main(argv=None) -> None:
         f"{len(args.dims)} dims × {len(args.seeds)} seeds = {total} runs\n"
     )
 
-    os.makedirs(os.path.dirname(args.summary_csv), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(args.summary_csv)), exist_ok=True)
     rows: List[dict] = []
     suite_start = time.perf_counter()
 
@@ -181,6 +205,8 @@ def main(argv=None) -> None:
                     bounds=bounds,
                     n_particles=args.n_particles,
                     use_grid_search=args.grid_search,
+                    grid_metric=args.grid_metric,
+                    grid_strategy=args.grid_strategy,
                     thread_max_workers=args.workers,
                     process_max_workers=args.process_workers,
                     batch_size=args.batch_size,
@@ -192,6 +218,7 @@ def main(argv=None) -> None:
                     out_dir=args.out_dir,
                     plots_dir=args.plots_dir,
                     log_dir=args.log_dir,
+                    repo_root=".",
                     save_files=True,
                 )
 

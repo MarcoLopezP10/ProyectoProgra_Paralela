@@ -1,10 +1,12 @@
 """experiment.grid_search
 
-Configurable grid search for PSO hyperparameters.
+Configurable grid search for PSO hyperparameters up to V2.
 
-The search evaluates each (w, c1, c2, n_particles) combination over
-multiple seeds and reports the average best fitness, as required by
-the project specification (3×3×3 grid, 5 seeds per combination).
+The search can evaluate V0, V1, or V2 using a selectable optimisation metric:
+- final_fitness
+- auc
+- convergence_iter
+- time_s
 """
 
 from __future__ import annotations
@@ -16,11 +18,18 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from core.swarm import Swarm
 from core.pso import PSO
+from core.swarm import Swarm
 from options.bounds import ClampBounds
 from options.topology import GlobalBestTopology
-from options.evaluator import SequentialEvaluator
+from parallel.evaluator import build_evaluator
+
+SUPPORTED_GRID_METRICS = {
+    "final_fitness",
+    "auc",
+    "convergence_iter",
+    "time_s",
+}
 
 
 def recommended_profile(objective_name: str, dim: int) -> Dict[str, Any]:
@@ -98,73 +107,124 @@ def recommended_profile(objective_name: str, dim: int) -> Dict[str, Any]:
     return profile
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Core grid search
-# ──────────────────────────────────────────────────────────────────────────────
+def _metric_from_run(pso: PSO, best_fit: float, time_s: float, metric: str) -> float:
+    """Compute the metric used to rank one grid-search run."""
+    if metric == "final_fitness":
+        return float(best_fit)
+    if metric == "auc":
+        return float(pso.area_under_curve())
+    if metric == "convergence_iter":
+        return float(pso.convergence_iteration())
+    if metric == "time_s":
+        return float(time_s)
+    raise ValueError(f"Unsupported grid-search metric: {metric}")
+
+
+def _aggregate_seed_rows(
+    strategy: str,
+    metric: str,
+    objective_name: str,
+    dim: int,
+    w: float,
+    c1: float,
+    c2: float,
+    n_particles: int,
+    seeds: List[int],
+    rows: List[Dict[str, float]],
+    max_workers: Optional[int],
+    batch_size: Optional[int],
+) -> Dict[str, Any]:
+    """Aggregate one hyperparameter combination across all seeds."""
+    metric_values = [row["metric_value"] for row in rows]
+    fitness_values = [row["best_fitness"] for row in rows]
+    auc_values = [row["auc"] for row in rows]
+    time_values = [row["time_s"] for row in rows]
+    convergence_values = [row["convergence_iter"] for row in rows]
+
+    return {
+        "objective": objective_name,
+        "dim": dim,
+        "strategy": strategy,
+        "selected_metric": metric,
+        "w": float(w),
+        "c1": float(c1),
+        "c2": float(c2),
+        "n_particles": int(n_particles),
+        "max_workers": max_workers,
+        "batch_size": batch_size,
+        "mean_metric": float(np.mean(metric_values)),
+        "std_metric": float(np.std(metric_values)),
+        "mean_fitness": float(np.mean(fitness_values)),
+        "std_fitness": float(np.std(fitness_values)),
+        "mean_auc": float(np.mean(auc_values)),
+        "std_auc": float(np.std(auc_values)),
+        "mean_time_s": float(np.mean(time_values)),
+        "std_time_s": float(np.std(time_values)),
+        "mean_convergence_iter": float(np.mean(convergence_values)),
+        "std_convergence_iter": float(np.std(convergence_values)),
+        "min_fitness": float(np.min(fitness_values)),
+        "max_fitness": float(np.max(fitness_values)),
+        "seeds": list(seeds),
+        "per_seed_rows": rows,
+    }
+
 
 def grid_search(
     objective_fn: Callable[[np.ndarray], float],
     dim: int,
     bounds: Tuple[List[float], List[float]],
-    w_values: List[float]           = None,
-    c1_values: List[float]          = None,
-    c2_values: List[float]          = None,
-    n_particles_values: List[int]   = None,
-    seeds: List[int]                = None,
-    max_iters: int                  = 200,
-    tol: float                      = 1e-8,
-    patience: int                   = 40,
-    vmax_ratio: float               = 0.2,
-    verbose: bool                   = False,
+    w_values: Optional[List[float]] = None,
+    c1_values: Optional[List[float]] = None,
+    c2_values: Optional[List[float]] = None,
+    n_particles_values: Optional[List[int]] = None,
+    seeds: Optional[List[int]] = None,
+    max_iters: int = 200,
+    tol: float = 1e-8,
+    patience: int = 40,
+    vmax_ratio: float = 0.2,
+    strategy: str = "v0",
+    metric: str = "final_fitness",
+    max_workers: Optional[int] = None,
+    batch_size: Optional[int] = None,
+    verbose: bool = False,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """
-    Grid search over PSO hyperparameters with multiple seeds per combination.
-
-    Each combination is evaluated over all seeds and ranked by mean best
-    fitness. The full results table is returned so it can be saved to CSV.
-
-    Parameters
-    ----------
-    objective_fn : Callable
-    dim : int
-    bounds : (lower, upper)
-    w_values : list of inertia weights to try          (default 3×3×3 grid)
-    c1_values : list of cognitive coefficients
-    c2_values : list of social coefficients
-    n_particles_values : list of swarm sizes
-    seeds : list of random seeds                       (default 5 seeds)
-    max_iters : int    Budget per combination (kept low for speed).
-    tol, patience : early-stop parameters
-    verbose : bool     Print progress.
-
-    Returns
-    -------
-    best_params : dict   Best hyperparameter combination found.
-    all_results : list   Full results table (one row per combination).
+    Grid search over PSO hyperparameters for a selected execution strategy.
     """
-    # Defaults: 3×3×3 grid with 5 seeds as specified in the project brief
-    if w_values          is None: w_values          = [0.4, 0.6, 0.8]
-    if c1_values         is None: c1_values         = [1.2, 1.5, 1.8]
-    if c2_values         is None: c2_values         = [1.2, 1.5, 1.8]
-    if n_particles_values is None: n_particles_values = [50]
-    if seeds             is None: seeds             = [0, 1, 7, 42, 123]
+    metric = metric.lower()
+    if metric not in SUPPORTED_GRID_METRICS:
+        raise ValueError(
+            f"metric must be one of {sorted(SUPPORTED_GRID_METRICS)}, got {metric!r}"
+        )
 
+    if w_values is None:
+        w_values = [0.4, 0.6, 0.8]
+    if c1_values is None:
+        c1_values = [1.2, 1.5, 1.8]
+    if c2_values is None:
+        c2_values = [1.2, 1.5, 1.8]
+    if n_particles_values is None:
+        n_particles_values = [50]
+    if seeds is None:
+        seeds = [0, 1, 7, 42, 123]
+
+    objective_name = getattr(objective_fn, "__name__", "objective")
     combos = list(itertools.product(w_values, c1_values, c2_values, n_particles_values))
-    total  = len(combos) * len(seeds)
+    total = len(combos) * len(seeds)
 
     if verbose:
         print(
-            f"  Grid search: {len(combos)} combinations × {len(seeds)} seeds "
-            f"= {total} runs  (max_iters={max_iters})"
+            f"  Grid search ({strategy.upper()} / {metric}): {len(combos)} combinations "
+            f"x {len(seeds)} seeds = {total} runs (max_iters={max_iters})"
         )
 
     all_results: List[Dict[str, Any]] = []
-    best_mean   = float("inf")
-    best_params: Dict[str, Any] = {}
+    best_result: Dict[str, Any] = {}
+    best_metric = float("inf")
     run_n = 0
 
     for w, c1, c2, n_part in combos:
-        seed_fits: List[float] = []
+        per_seed_rows: List[Dict[str, float]] = []
 
         for seed in seeds:
             run_n += 1
@@ -178,61 +238,80 @@ def grid_search(
             )
             pso = PSO(
                 swarm=swarm,
-                evaluator=SequentialEvaluator(objective_fn),
+                evaluator=build_evaluator(
+                    strategy,
+                    objective_fn,
+                    max_workers=max_workers,
+                    batch_size=batch_size,
+                ),
                 bounds_handler=ClampBounds(bounds[0], bounds[1]),
                 topology=GlobalBestTopology(),
-                w=float(w), c1=float(c1), c2=float(c2),
+                w=float(w),
+                c1=float(c1),
+                c2=float(c2),
                 max_iters=max_iters,
                 seed=seed,
                 tol=tol,
                 patience=patience,
                 log_every=0,
             )
-            _, best_fit, _, _ = pso.run()
-            seed_fits.append(float(best_fit))
+            _, best_fit, time_s, _ = pso.run()
+            per_seed_row = {
+                "seed": float(seed),
+                "best_fitness": float(best_fit),
+                "auc": float(pso.area_under_curve()),
+                "convergence_iter": float(pso.convergence_iteration()),
+                "time_s": float(time_s),
+                "metric_value": _metric_from_run(pso, best_fit, time_s, metric),
+            }
+            per_seed_rows.append(per_seed_row)
 
             if verbose:
                 print(
-                    f"    [{run_n}/{total}] w={w:.2f} c1={c1:.2f} c2={c2:.2f} "
-                    f"n={n_part} seed={seed} → fit={best_fit:.4e}",
+                    f"    [{run_n}/{total}] {strategy.upper()} w={w:.2f} c1={c1:.2f} "
+                    f"c2={c2:.2f} n={n_part} seed={seed} "
+                    f"-> fit={best_fit:.4e} auc={per_seed_row['auc']:.4e} "
+                    f"conv={int(per_seed_row['convergence_iter'])} t={time_s:.4f}s",
                     flush=True,
                 )
 
-        mean_fit = float(np.mean(seed_fits))
-        std_fit  = float(np.std(seed_fits))
-
-        row = {
-            "w": float(w), "c1": float(c1), "c2": float(c2),
-            "n_particles": int(n_part),
-            "mean_fitness": mean_fit,
-            "std_fitness": std_fit,
-            "min_fitness": float(np.min(seed_fits)),
-            "max_fitness": float(np.max(seed_fits)),
-            "seeds": seeds,
-            "per_seed_fitness": seed_fits,
-        }
+        row = _aggregate_seed_rows(
+            strategy=strategy,
+            metric=metric,
+            objective_name=objective_name,
+            dim=dim,
+            w=float(w),
+            c1=float(c1),
+            c2=float(c2),
+            n_particles=int(n_part),
+            seeds=list(seeds),
+            rows=per_seed_rows,
+            max_workers=max_workers,
+            batch_size=batch_size,
+        )
         all_results.append(row)
 
-        if mean_fit < best_mean:
-            best_mean = mean_fit
-            best_params = {
-                "w": float(w), "c1": float(c1), "c2": float(c2),
-                "n_particles": int(n_part),
-                "mean_fitness": mean_fit,
-                "std_fitness": std_fit,
+        if row["mean_metric"] < best_metric:
+            best_metric = row["mean_metric"]
+            best_result = {
+                "w": row["w"],
+                "c1": row["c1"],
+                "c2": row["c2"],
+                "n_particles": row["n_particles"],
+                "strategy": strategy,
+                "selected_metric": metric,
+                "mean_metric": row["mean_metric"],
+                "std_metric": row["std_metric"],
+                "mean_fitness": row["mean_fitness"],
+                "mean_auc": row["mean_auc"],
+                "mean_time_s": row["mean_time_s"],
+                "mean_convergence_iter": row["mean_convergence_iter"],
+                "max_workers": max_workers,
+                "batch_size": batch_size,
             }
 
-    # Sort by mean fitness
-    all_results.sort(key=lambda r: r["mean_fitness"])
-
-    if verbose:
-        print(
-            f"\n  Best: w={best_params['w']} c1={best_params['c1']} "
-            f"c2={best_params['c2']} n={best_params['n_particles']} "
-            f"mean_fit={best_mean:.4e}"
-        )
-
-    return best_params, all_results
+    all_results.sort(key=lambda row: row["mean_metric"])
+    return best_result, all_results
 
 
 def simple_grid_search(
@@ -242,12 +321,13 @@ def simple_grid_search(
     max_iters: int = 200,
     seed: int = 42,
     vmax_ratio: Optional[float] = None,
+    strategy: str = "v0",
+    metric: str = "final_fitness",
+    max_workers: Optional[int] = None,
+    batch_size: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Lightweight multi-seed grid search used by run_single.py.
-
-    Uses a small, dimension-aware search space and three seeds so parameter
-    selection is more stable without becoming too slow.
     """
     name = getattr(objective_fn, "__name__", "objective")
     profile = recommended_profile(name, dim)
@@ -269,14 +349,14 @@ def simple_grid_search(
         tol=profile["tol"],
         patience=max(40, int(profile["patience"] * 0.6)),
         vmax_ratio=profile["vmax_ratio"] if vmax_ratio is None else vmax_ratio,
+        strategy=strategy,
+        metric=metric,
+        max_workers=max_workers,
+        batch_size=batch_size,
         verbose=False,
     )
     return best_params
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# CSV persistence
-# ──────────────────────────────────────────────────────────────────────────────
 
 def save_grid_search_csv(
     results: List[Dict[str, Any]],
@@ -284,10 +364,32 @@ def save_grid_search_csv(
     objective: str,
     dim: int,
 ) -> None:
-    """Save the full grid search results table as CSV."""
+    """Save the full grid-search results table as CSV."""
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-    fields = ["objective", "dim", "w", "c1", "c2", "n_particles",
-              "mean_fitness", "std_fitness", "min_fitness", "max_fitness"]
+    fields = [
+        "objective",
+        "dim",
+        "strategy",
+        "selected_metric",
+        "w",
+        "c1",
+        "c2",
+        "n_particles",
+        "max_workers",
+        "batch_size",
+        "mean_metric",
+        "std_metric",
+        "mean_fitness",
+        "std_fitness",
+        "mean_auc",
+        "std_auc",
+        "mean_time_s",
+        "std_time_s",
+        "mean_convergence_iter",
+        "std_convergence_iter",
+        "min_fitness",
+        "max_fitness",
+    ]
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()

@@ -1,27 +1,32 @@
+"""options.topology
+
+Neighbourhood policies used by the PSO core.
+
+The project currently ships only the canonical global-best topology, but the
+abstraction keeps the core loop ready for ring/local-best variants.
+"""
+
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+
+import numpy as np
+from numpy.typing import NDArray
 
 
 class Topology(ABC):
-    """
-    Abstract base class for swarm topologies.
-     Defines the interface for determining the best position for a particle based on the swarm's topology.
-    """
+    """Return the social reference position used by one particle."""
+
     @abstractmethod
-    def get_best_position(self, particle, swarm):
-        pass
+    def get_best_position(self, particle, swarm) -> NDArray[np.float64]:
+        """Return the position that should guide the particle update."""
+        raise NotImplementedError
 
 
 class GlobalBestTopology(Topology):
-    """
-    Global best topology where each particle is influenced by the best position found by the entire swarm.
-    """
-    def get_best_position(self, particle, swarm):
-        """
-        Get the global best position from the swarm.
-        Args:
-            particle: The particle for which to determine the best position (not used in global topology).
-            swarm: The swarm containing all particles and the global best information.
-        Returns:
-             The global best position found by the swarm.
-        """
+    """Every particle is attracted to the swarm-wide best position."""
+
+    def get_best_position(self, particle, swarm) -> NDArray[np.float64]:
+        # `particle` is unused here, but keeping the same signature makes it
+        # easy to plug in local neighbourhood topologies later.
         return swarm.global_best_position

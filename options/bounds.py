@@ -71,19 +71,21 @@ class ClampBounds(BoundsPolicy):
     def apply(
         self, position: np.ndarray, velocity: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Apply clamping to the position and zero velocity on axes that hit the wall.
+        """
+        Apply clamping to the position and zero velocity on axes that hit the wall.
+
         Parameters
-        ----------  
-        
+        ----------
         position : np.ndarray
             The current position of the particle.
         velocity : np.ndarray
             The current velocity of the particle.
+
         Returns
         -------
         tuple[np.ndarray, np.ndarray]
             The corrected position and velocity.
-            """
+        """
         position = np.array(position, dtype=float)
         velocity = np.array(velocity, dtype=float)
 

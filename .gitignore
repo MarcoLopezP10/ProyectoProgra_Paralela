@@ -3,5 +3,7 @@ __pycache__/
 
 logs/
 results/
+reports/
+*.egg-info/
 
 *.png

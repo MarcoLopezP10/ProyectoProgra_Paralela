@@ -1,18 +1,19 @@
 """core.pso
 
-PSO algorithm — sequential baseline (V0).
+PSO algorithm core shared by V0, V1, and V2.
 
 Instruments:
-- Per-iteration timing: fitness evaluation vs particle update
-- Structured per-iteration logging (iter, best_fitness, t_eval, t_update)
-- Total elapsed time
+- Per-iteration timing: fitness evaluation, particle update, overhead
+- Structured per-iteration logging
+- Convergence history and iteration-level records for persistence/analysis
 """
 
 from __future__ import annotations
 
+import copy
 import time
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -21,6 +22,13 @@ from core.swarm import Swarm
 from options.topology import Topology
 from options.bounds import BoundsPolicy
 from options.evaluator import FitnessEvaluator
+
+
+def _trapezoid_area(values: list[float]) -> float:
+    """Compute AUC without tripping NumPy 2.x deprecation warnings."""
+    arr = np.asarray(values, dtype=float)
+    trapezoid = getattr(np, "trapezoid", np.trapz)
+    return float(trapezoid(arr))
 
 
 class PSO:
@@ -47,6 +55,7 @@ class PSO:
         patience: int = 20,
         log_every: int = 10,
         logger: Optional[logging.Logger] = None,
+        on_iteration: Optional[Callable[[int, Swarm, dict[str, float]], None]] = None,
     ):
         """
         Parameters
@@ -79,14 +88,19 @@ class PSO:
         self.patience = patience
         self.log_every = log_every
         self.logger = logger
+        self.on_iteration = on_iteration
 
         # Convergence history: best fitness per iteration
         self.history: list[float] = []
+        self.iteration_records: list[dict[str, float]] = []
 
         # Timing breakdown accumulators
-        self.time_eval: float = 0.0        # total time spent in fitness evaluation
-        self.time_update: float = 0.0      # total time spent updating velocities/positions
-        self.time_total: float = 0.0       # wall-clock time for the full run
+        self.time_eval: float = 0.0
+        self.time_update: float = 0.0
+        self.time_total: float = 0.0
+
+        # Capture the initial optimiser state so repeated run() calls are deterministic.
+        self._initial_swarm_state = self._snapshot_swarm_state()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -95,6 +109,56 @@ class PSO:
     def _log(self, msg: str) -> None:
         if self.logger:
             self.logger.info(msg)
+
+    def _snapshot_swarm_state(self) -> dict[str, object]:
+        """Capture the full mutable swarm state needed to rerun from scratch."""
+        return {
+            "global_best_position": (
+                None
+                if self.swarm.global_best_position is None
+                else self.swarm.global_best_position.copy()
+            ),
+            "global_best_fitness": float(self.swarm.global_best_fitness),
+            "particles": [
+                {
+                    "position": p.position.copy(),
+                    "velocity": p.velocity.copy(),
+                    "best_position": p.best_position.copy(),
+                    "best_fitness": float(p.best_fitness),
+                    "rng_state": copy.deepcopy(p.rng.bit_generator.state),
+                }
+                for p in self.swarm.particles
+            ],
+        }
+
+    def _restore_swarm_state(self) -> None:
+        """Restore the optimiser to the exact state it had before the first run."""
+        snapshot = self._initial_swarm_state
+        self.swarm.global_best_position = (
+            None
+            if snapshot["global_best_position"] is None
+            else snapshot["global_best_position"].copy()
+        )
+        self.swarm.global_best_fitness = float(snapshot["global_best_fitness"])
+
+        for particle, particle_state in zip(
+            self.swarm.particles,
+            snapshot["particles"],
+        ):
+            particle.position = particle_state["position"].copy()
+            particle.velocity = particle_state["velocity"].copy()
+            particle.best_position = particle_state["best_position"].copy()
+            particle.best_fitness = float(particle_state["best_fitness"])
+            particle.rng.bit_generator.state = copy.deepcopy(particle_state["rng_state"])
+
+    def _reset_run_state(self) -> None:
+        """Reset time series, timers, and swarm state before every run."""
+        self._restore_swarm_state()
+        self.history = []
+        self.iteration_records = []
+        self.time_eval = 0.0
+        self.time_update = 0.0
+        self.time_total = 0.0
 
     # ------------------------------------------------------------------
     # Main loop
@@ -111,6 +175,8 @@ class PSO:
         elapsed_time : float   Wall-clock seconds for the full run.
         iterations : int       Number of iterations actually executed.
         """
+        self._reset_run_state()
+
         start_total = time.perf_counter()
         no_improve_counter = 0
         prev_best = np.inf
@@ -124,6 +190,7 @@ class PSO:
         self.evaluator.open()
         try:
             for it in range(self.max_iters):
+                start_iter = time.perf_counter()
 
                 # ── 1. Evaluate fitness ───────────────────────────────────
                 positions = self.swarm.get_positions()
@@ -156,6 +223,25 @@ class PSO:
                 t3 = time.perf_counter()
                 iter_update_time = t3 - t2
                 self.time_update += iter_update_time
+                iter_total_time = t3 - start_iter
+                iter_overhead_time = max(
+                    iter_total_time - iter_eval_time - iter_update_time,
+                    0.0,
+                )
+
+                iteration_record = {
+                    "iter": float(it),
+                    "best_fitness": float(self.swarm.global_best_fitness),
+                    "eval_s": float(iter_eval_time),
+                    "update_s": float(iter_update_time),
+                    "overhead_s": float(iter_overhead_time),
+                    "iter_s": float(iter_total_time),
+                    "stall_count": float(no_improve_counter),
+                }
+                self.iteration_records.append(iteration_record)
+
+                if self.on_iteration is not None:
+                    self.on_iteration(it, self.swarm, iteration_record)
 
                 # ── 6. Per-iteration structured log ───────────────────────
                 if self.log_every > 0 and it % self.log_every == 0:
@@ -164,7 +250,8 @@ class PSO:
                         f"best={self.swarm.global_best_fitness:.6e} "
                         f"eval_ms={iter_eval_time*1000:.2f} "
                         f"update_ms={iter_update_time*1000:.2f} "
-                        f"iter_ms={(iter_eval_time + iter_update_time)*1000:.2f} "
+                        f"overhead_ms={iter_overhead_time*1000:.2f} "
+                        f"iter_ms={iter_total_time*1000:.2f} "
                         f"stall={no_improve_counter}/{self.patience}"
                     )
 
@@ -218,3 +305,36 @@ class PSO:
             "pct_eval": 100 * self.time_eval / self.time_total if self.time_total else 0.0,
             "pct_update": 100 * self.time_update / self.time_total if self.time_total else 0.0,
         }
+
+    def area_under_curve(self, normalize: bool = False) -> float:
+        """Return the convergence AUC over best-fitness history."""
+        if not self.history:
+            return 0.0
+        if len(self.history) == 1:
+            auc = float(self.history[0])
+        else:
+            auc = _trapezoid_area(self.history)
+        if normalize and len(self.history) > 1:
+            return auc / float(len(self.history) - 1)
+        return auc
+
+    def convergence_iteration(
+        self,
+        abs_tol: Optional[float] = None,
+        rel_tol: float = 0.01,
+    ) -> int:
+        """
+        Return the first iteration that reaches the final best value within tolerance.
+        """
+        if not self.history:
+            return 0
+
+        final_best = float(self.history[-1])
+        margin = max(
+            abs_tol if abs_tol is not None else self.tol,
+            abs(final_best) * rel_tol,
+        )
+        for idx, value in enumerate(self.history):
+            if value <= final_best + margin:
+                return idx
+        return len(self.history) - 1

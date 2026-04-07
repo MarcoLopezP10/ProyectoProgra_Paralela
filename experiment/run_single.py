@@ -27,16 +27,18 @@ from core.swarm import Swarm
 from core.pso import PSO
 from options.bounds import ClampBounds
 from options.topology import GlobalBestTopology
-from parallel.evaluator import ProcessPoolEvaluator, SequentialEvaluator, ThreadPoolEvaluator
+from parallel.evaluator import build_evaluator
 from experiment.grid_search import recommended_profile, simple_grid_search
 from baseline.pswarm import run_pyswarm_baseline
 from utils.logger import setup_logger
+from utils.metadata import collect_execution_metadata
 from utils.io import (
+    ExecutionMetadata,
     ExperimentSummary,
     MethodResult,
     TimingBreakdown,
     result_dir,
-    save_history_csv,
+    save_iteration_metrics_csv,
     save_summary_json,
 )
 from viz.convergence import save_convergence_plot
@@ -60,6 +62,8 @@ class RunConfig:
     c2: Optional[float] = None
     n_particles: Optional[int] = None
     use_grid_search: bool = False
+    grid_metric: str = "final_fitness"
+    grid_strategy: str = "v0"
     thread_max_workers: Optional[int] = None
     process_max_workers: Optional[int] = None
     batch_size: Optional[int] = None
@@ -71,10 +75,11 @@ class RunConfig:
     log_every: int = 10       # log a line every N iters inside PSO (0 = off)
 
     # Output paths
-    out_dir: str = "results"
+    out_dir: str = "results/runs"
     plots_dir: str = "logs/convergence"
     log_dir: str = "logs"
     log_file: str = "pso_summary.log"
+    repo_root: str = "."
 
     save_files: bool = True
 
@@ -149,15 +154,50 @@ def _resolve_winner(results: list[tuple[str, float, float]]) -> str:
     return winners[0] if len(winners) == 1 else "Tie"
 
 
+def _build_method_result(
+    strategy: str,
+    pso: Optional[PSO],
+    best_fitness: float,
+    iterations: int,
+    total_s: Optional[float] = None,
+    max_workers: Optional[int] = None,
+    batch_size: Optional[int] = None,
+) -> MethodResult:
+    """Create a persistable method result from a PSO run or a baseline value."""
+    if pso is None:
+        timing = TimingBreakdown(total_s=float(total_s or 0.0))
+        return MethodResult(
+            strategy=strategy,
+            best_fitness=float(best_fitness),
+            iterations=int(iterations),
+            auc=None,
+            convergence_iteration=None,
+            timing=timing,
+            max_workers=max_workers,
+            batch_size=batch_size,
+        )
+
+    return MethodResult(
+        strategy=strategy,
+        best_fitness=float(best_fitness),
+        iterations=int(iterations),
+        auc=float(pso.area_under_curve()),
+        convergence_iteration=int(pso.convergence_iteration()),
+        timing=TimingBreakdown(**pso.timing_summary()),
+        max_workers=max_workers,
+        batch_size=batch_size,
+    )
+
+
 def _print_table(
     name: str, dim: int, seed: int,
     w: float, c1: float, c2: float, n_particles: int,
     v0_fit: float, v0_iters: int, v0_time: float,
-    v0_pct_eval: float, v0_pct_update: float,
+    v0_pct_eval: float, v0_pct_update: float, v0_conv_iter: int,
     v1_fit: float, v1_iters: int, v1_time: float,
-    v1_pct_eval: float, v1_pct_update: float,
+    v1_pct_eval: float, v1_pct_update: float, v1_conv_iter: int,
     v2_fit: float, v2_iters: int, v2_time: float,
-    v2_pct_eval: float, v2_pct_update: float,
+    v2_pct_eval: float, v2_pct_update: float, v2_conv_iter: int,
     base_fit: float, base_iters: int, base_time: float,
     winner: str,
     thread_max_workers: Optional[int],
@@ -181,13 +221,13 @@ def _print_table(
         ["batch_size", batch_size or "auto"],
     ]
     result_rows = [
-        ["V0 Sequential", f"{v0_fit:.6e}", v0_iters, f"{v0_time:.4f}",
+        ["V0 Sequential", f"{v0_fit:.6e}", v0_iters, v0_conv_iter, f"{v0_time:.4f}",
          "1.000x", f"{v0_pct_eval:.1f}%", f"{v0_pct_update:.1f}%"],
-        ["V1 Threading", f"{v1_fit:.6e}", v1_iters, f"{v1_time:.4f}",
+        ["V1 Threading", f"{v1_fit:.6e}", v1_iters, v1_conv_iter, f"{v1_time:.4f}",
          f"{v1_speedup:.3f}x", f"{v1_pct_eval:.1f}%", f"{v1_pct_update:.1f}%"],
-        ["V2 Multiprocessing", f"{v2_fit:.6e}", v2_iters, f"{v2_time:.4f}",
+        ["V2 Multiprocessing", f"{v2_fit:.6e}", v2_iters, v2_conv_iter, f"{v2_time:.4f}",
          f"{v2_speedup:.3f}x", f"{v2_pct_eval:.1f}%", f"{v2_pct_update:.1f}%"],
-        ["PySwarm baseline", f"{base_fit:.6e}", base_iters, f"{base_time:.4f}",
+        ["PySwarm baseline", f"{base_fit:.6e}", base_iters, "-", f"{base_time:.4f}",
          f"{baseline_speedup:.3f}x", "-", "-"],
     ]
     summary_rows = [
@@ -201,7 +241,7 @@ def _print_table(
         for r in hyper_rows: t.add_row(r)
         print(t)
 
-        t = PrettyTable(["Method", "Best fitness", "Iters", "Time (s)", "Speedup", "% eval", "% update"])
+        t = PrettyTable(["Method", "Best fitness", "Iters", "Conv iter", "Time (s)", "Speedup", "% eval", "% update"])
         for r in result_rows: t.add_row(r)
         print(t)
 
@@ -211,7 +251,7 @@ def _print_table(
     else:
         for section, headers, rows in [
             ("Hyperparameters", ["Param", "Value"], hyper_rows),
-            ("Results", ["Method", "Best fitness", "Iters", "Time (s)", "Speedup", "% eval", "% update"], result_rows),
+            ("Results", ["Method", "Best fitness", "Iters", "Conv iter", "Time (s)", "Speedup", "% eval", "% update"], result_rows),
             ("Summary", ["Metric", "Value"], summary_rows),
         ]:
             widths = [max(len(str(r[i])) for r in ([headers] + rows)) for i in range(len(headers))]
@@ -249,6 +289,7 @@ def run_one_objective(
     """
     logger = setup_logger(log_dir=cfg.log_dir, log_file=cfg.log_file)
     name = getattr(objective, "__name__", "objective")
+    execution_metadata = ExecutionMetadata(**collect_execution_metadata(cfg.repo_root))
     resolved = _resolve_run_config(cfg, name)
     cfg.max_iters = int(resolved["max_iters"])
     cfg.tol = float(resolved["tol"])
@@ -270,6 +311,10 @@ def run_one_objective(
             max_iters=cfg.max_iters,
             seed=cfg.seed,
             vmax_ratio=cfg.vmax_ratio,
+            strategy=cfg.grid_strategy,
+            metric=cfg.grid_metric,
+            max_workers=cfg.process_max_workers if cfg.grid_strategy.lower() == "v2" else cfg.thread_max_workers,
+            batch_size=cfg.batch_size,
         )
         w, c1, c2 = float(best["w"]), float(best["c1"]), float(best["c2"])
         n_particles = int(best["n_particles"])
@@ -287,22 +332,38 @@ def run_one_objective(
         f"event=config source={hyperparam_source} objective={name} dim={cfg.dim} "
         f"seed={cfg.seed} w={w:.3f} c1={c1:.3f} c2={c2:.3f} "
         f"particles={n_particles} vmax_ratio={cfg.vmax_ratio:.3f} "
-        f"max_iters={cfg.max_iters} patience={cfg.patience} tol={cfg.tol:.1e}"
+        f"max_iters={cfg.max_iters} patience={cfg.patience} tol={cfg.tol:.1e} "
+        f"grid_strategy={cfg.grid_strategy} grid_metric={cfg.grid_metric}"
     )
 
     # ── 2. V0 — Sequential ───────────────────────────────────────────
     v0_log = logging.LoggerAdapter(logger, {"objective": tag, "method": "V0"})
-    v0_pso = _build_pso(cfg, bounds, w, c1, c2, n_particles,
-                        SequentialEvaluator(objective), v0_log)
+    v0_pso = _build_pso(
+        cfg,
+        bounds,
+        w,
+        c1,
+        c2,
+        n_particles,
+        build_evaluator("v0", objective),
+        v0_log,
+    )
     v0_pos, v0_fit, v0_time, v0_iters = v0_pso.run()
     v0_timing = v0_pso.timing_summary()
     v0_history = list(v0_pso.history)
 
     # ── 3. V1 — Threading ────────────────────────────────────────────
     v1_log = logging.LoggerAdapter(logger, {"objective": tag, "method": "V1"})
-    v1_pso = _build_pso(cfg, bounds, w, c1, c2, n_particles,
-                        ThreadPoolEvaluator(objective, max_workers=cfg.thread_max_workers),
-                        v1_log)
+    v1_pso = _build_pso(
+        cfg,
+        bounds,
+        w,
+        c1,
+        c2,
+        n_particles,
+        build_evaluator("v1", objective, max_workers=cfg.thread_max_workers),
+        v1_log,
+    )
     v1_pos, v1_fit, v1_time, v1_iters = v1_pso.run()
     v1_timing = v1_pso.timing_summary()
     v1_history = list(v1_pso.history)
@@ -316,7 +377,8 @@ def run_one_objective(
         c1,
         c2,
         n_particles,
-        ProcessPoolEvaluator(
+        build_evaluator(
+            "v2",
             objective,
             max_workers=cfg.process_max_workers,
             batch_size=cfg.batch_size,
@@ -334,6 +396,7 @@ def run_one_objective(
         w=w, c1=c1, c2=c2,
         n_particles=n_particles,
         max_iters=cfg.max_iters,
+        seed=cfg.seed,
     )
 
     # ── 6. Winner ─────────────────────────────────────────────────────
@@ -348,17 +411,20 @@ def run_one_objective(
     log.info(
         f"event=summary method=V0 fit={v0_fit:.6e} iters={v0_iters} "
         f"time_s={v0_time:.4f} eval_pct={v0_timing['pct_eval']:.1f} "
-        f"update_pct={v0_timing['pct_update']:.1f}"
+        f"update_pct={v0_timing['pct_update']:.1f} auc={v0_pso.area_under_curve():.6e} "
+        f"conv_iter={v0_pso.convergence_iteration()}"
     )
     log.info(
         f"event=summary method=V1 fit={v1_fit:.6e} iters={v1_iters} "
         f"time_s={v1_time:.4f} eval_pct={v1_timing['pct_eval']:.1f} "
-        f"update_pct={v1_timing['pct_update']:.1f} speedup_vs_v0={v0_time/v1_time:.3f}x"
+        f"update_pct={v1_timing['pct_update']:.1f} auc={v1_pso.area_under_curve():.6e} "
+        f"conv_iter={v1_pso.convergence_iteration()} speedup_vs_v0={v0_time/v1_time:.3f}x"
     )
     log.info(
         f"event=summary method=V2 fit={v2_fit:.6e} iters={v2_iters} "
         f"time_s={v2_time:.4f} eval_pct={v2_timing['pct_eval']:.1f} "
-        f"update_pct={v2_timing['pct_update']:.1f} speedup_vs_v0={v0_time/v2_time:.3f}x "
+        f"update_pct={v2_timing['pct_update']:.1f} auc={v2_pso.area_under_curve():.6e} "
+        f"conv_iter={v2_pso.convergence_iteration()} speedup_vs_v0={v0_time/v2_time:.3f}x "
         f"process_workers={cfg.process_max_workers or 'default'} "
         f"batch_size={cfg.batch_size or 'auto'}"
     )
@@ -373,10 +439,13 @@ def run_one_objective(
         w=w, c1=c1, c2=c2, n_particles=n_particles,
         v0_fit=float(v0_fit), v0_iters=v0_iters, v0_time=v0_time,
         v0_pct_eval=v0_timing["pct_eval"], v0_pct_update=v0_timing["pct_update"],
+        v0_conv_iter=v0_pso.convergence_iteration(),
         v1_fit=float(v1_fit), v1_iters=v1_iters, v1_time=v1_time,
         v1_pct_eval=v1_timing["pct_eval"], v1_pct_update=v1_timing["pct_update"],
+        v1_conv_iter=v1_pso.convergence_iteration(),
         v2_fit=float(v2_fit), v2_iters=v2_iters, v2_time=v2_time,
         v2_pct_eval=v2_timing["pct_eval"], v2_pct_update=v2_timing["pct_update"],
+        v2_conv_iter=v2_pso.convergence_iteration(),
         base_fit=float(base_fit), base_iters=base_iters, base_time=base_time,
         winner=winner, thread_max_workers=cfg.thread_max_workers,
         process_max_workers=cfg.process_max_workers, batch_size=cfg.batch_size,
@@ -395,7 +464,7 @@ def run_one_objective(
             process_history=v2_history,
         )
 
-        # Structured results directory: results/sphere_d2_s42/
+        # Structured results directory: results/runs/sphere_d2_s42/
         rdir = result_dir(cfg.out_dir, name, cfg.dim, cfg.seed)
         os.makedirs(rdir, exist_ok=True)
 
@@ -411,30 +480,32 @@ def run_one_objective(
             max_iters=cfg.max_iters,
             tol=cfg.tol,
             patience=cfg.patience,
-            v0=MethodResult(
-                best_fitness=float(v0_fit),
-                iterations=v0_iters,
-                timing=TimingBreakdown(**v0_timing),
-            ),
-            v1=MethodResult(
-                best_fitness=float(v1_fit),
-                iterations=v1_iters,
-                timing=TimingBreakdown(**v1_timing),
+            v0=_build_method_result("V0 Sequential", v0_pso, float(v0_fit), v0_iters),
+            v1=_build_method_result(
+                "V1 Threading",
+                v1_pso,
+                float(v1_fit),
+                v1_iters,
                 max_workers=cfg.thread_max_workers,
             ),
-            v2=MethodResult(
-                best_fitness=float(v2_fit),
-                iterations=v2_iters,
-                timing=TimingBreakdown(**v2_timing),
+            v2=_build_method_result(
+                "V2 Multiprocessing",
+                v2_pso,
+                float(v2_fit),
+                v2_iters,
                 max_workers=cfg.process_max_workers,
                 batch_size=cfg.batch_size,
             ),
-            baseline=MethodResult(
-                best_fitness=float(base_fit),
-                iterations=base_iters,
-                timing=TimingBreakdown(total_s=base_time),
+            baseline=_build_method_result(
+                "PySwarm baseline",
+                None,
+                float(base_fit),
+                base_iters,
+                total_s=base_time,
             ),
             winner=winner,
+            selected_grid_metric=cfg.grid_metric if cfg.use_grid_search else None,
+            execution=execution_metadata,
             notes=(
                 "V1 uses ThreadPoolExecutor and is mainly a concurrency baseline. "
                 "V2 uses ProcessPoolExecutor with batched particle evaluation to "
@@ -448,9 +519,9 @@ def run_one_objective(
         history_v2_path = os.path.join(rdir, "history_v2.csv")
 
         save_summary_json(summary, summary_path)
-        save_history_csv(v0_history, history_v0_path)
-        save_history_csv(v1_history, history_v1_path)
-        save_history_csv(v2_history, history_v2_path)
+        save_iteration_metrics_csv(v0_pso.iteration_records, history_v0_path)
+        save_iteration_metrics_csv(v1_pso.iteration_records, history_v1_path)
+        save_iteration_metrics_csv(v2_pso.iteration_records, history_v2_path)
 
     else:
         plot_path = None
@@ -461,17 +532,27 @@ def run_one_objective(
         "seed": cfg.seed,
         "hyperparams": {"w": w, "c1": c1, "c2": c2, "n_particles": n_particles},
         "v0": {"best_pos": v0_pos, "best_fit": v0_fit,
-               "time_s": v0_time, "iters": v0_iters, "timing": v0_timing},
+               "time_s": v0_time, "iters": v0_iters, "timing": v0_timing,
+               "auc": v0_pso.area_under_curve(),
+               "convergence_iter": v0_pso.convergence_iteration()},
         "v1": {"best_pos": v1_pos, "best_fit": v1_fit,
                "time_s": v1_time, "iters": v1_iters, "timing": v1_timing,
-               "max_workers": cfg.thread_max_workers},
+               "max_workers": cfg.thread_max_workers,
+               "auc": v1_pso.area_under_curve(),
+               "convergence_iter": v1_pso.convergence_iteration()},
         "v2": {"best_pos": v2_pos, "best_fit": v2_fit,
                "time_s": v2_time, "iters": v2_iters, "timing": v2_timing,
-               "max_workers": cfg.process_max_workers, "batch_size": cfg.batch_size},
+               "max_workers": cfg.process_max_workers, "batch_size": cfg.batch_size,
+               "auc": v2_pso.area_under_curve(),
+               "convergence_iter": v2_pso.convergence_iteration()},
         "baseline": {"best_fit": base_fit, "time_s": base_time, "iters": base_iters},
         "winner": winner,
+        "selected_grid_metric": cfg.grid_metric if cfg.use_grid_search else None,
         "history_v0": v0_history,
         "history_v1": v1_history,
         "history_v2": v2_history,
+        "iteration_records_v0": list(v0_pso.iteration_records),
+        "iteration_records_v1": list(v1_pso.iteration_records),
+        "iteration_records_v2": list(v2_pso.iteration_records),
         "plot_path": plot_path,
     }

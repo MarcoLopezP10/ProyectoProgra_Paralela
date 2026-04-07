@@ -3,6 +3,19 @@
 
 A complete, maintainable Python implementation of Particle Swarm Optimization (PSO) following software engineering best practices, used as a testbed for comparing different parallel and concurrent evaluation strategies.
 
+Current delivery scope is complete up to `V2`:
+
+- `V0`: sequential baseline
+- `V1`: threading with `ThreadPoolExecutor`
+- `V2`: multiprocessing with `ProcessPoolExecutor` and batching
+
+`V3` and `V4` remain documented as future extensions only.
+
+Project documents:
+
+- Design notes: `docs/design.md`
+- Final report: `docs/final_report.md`
+
 ---
 
 ## Table of Contents
@@ -39,6 +52,10 @@ The core PSO algorithm never changes between versions. Only the fitness evaluato
 
 ```
 PRACTICA-2.2/
+├── .vscode/                    # Optional VS Code execution helpers
+│   ├── launch.json             # Run and Debug profiles for all main scripts
+│   └── settings.json           # Interpreter + PYTHONPATH support for editor runs
+│
 ├── core/                       # PSO algorithm
 │   ├── particle.py             # Single particle (position, velocity, personal best)
 │   ├── swarm.py                # Collection of particles + global best
@@ -67,23 +84,30 @@ PRACTICA-2.2/
 │
 ├── viz/                        # Visualisation
 │   ├── convergence.py          # Convergence curves (fitness vs iteration)
-│   └── swarm_animation.py      # Swarm evolution animation for d=2 (GIF/MP4)
+│   └── swarm_animation.py      # Swarm evolution animation for d=2/d=3
 │
 ├── utils/                      # Cross-cutting utilities
 │   ├── io.py                   # Structured persistence (JSON + CSV)
-│   └── logger.py               # Structured logging with context
+│   ├── logger.py               # Structured logging with context
+│   └── metadata.py             # Execution metadata for reproducibility
 │
 ├── scripts/                    # Entry-point scripts
 │   ├── run_pso.py              # Single reproducible run
 │   ├── run_benchmarks.py       # Full benchmark suite
 │   ├── run_grid_search.py      # Hyperparameter grid search
-│   └── make_viz.py             # Swarm animations
+│   ├── make_viz.py             # Swarm animations
+│   ├── analyze_results.py      # Result analysis and summary plots
+│   └── clean_outputs.py        # Generated-output cleanup helper
 │
 ├── tests/
-│   └── test_pso.py             # Unit tests
+│   └── ...                     # Unit tests
 │
-├── results/                    # Auto-generated experiment results
-└── logs/                       # Auto-generated logs and convergence plots
+├── docs/
+│   └── design.md               # Short design document
+│
+├── results/                    # Raw experiment outputs
+├── reports/                    # Generated analysis summaries and plots
+└── logs/                       # Auto-generated logs and visual artefacts
 ```
 
 ---
@@ -176,8 +200,8 @@ changes.
 git clone <repo-url>
 cd PRACTICA-2.2
 
-# Install dependencies (no virtual environment required)
-pip install numpy matplotlib prettytable pyswarm pytest pillow
+# Install the project and development dependencies
+pip install -e ".[dev]"
 ```
 
 Python 3.10+ recommended.
@@ -189,6 +213,47 @@ dependency. Some modules such as `prettytable`, `matplotlib`, `pyswarm`,
 ---
 
 ## 5. Usage & Commands
+
+All user-facing workflows can be launched in two equivalent ways:
+
+- from the terminal with `python -m scripts.<name>`
+- from VS Code using the bundled `Run and Debug` profiles in `.vscode/launch.json`
+
+Both paths execute the same Python entry-point scripts. The VS Code profiles are
+only a convenience layer on top of the existing CLI scripts; they do not change
+the PSO logic or the experiment pipeline.
+
+### VS Code: Run and Debug
+
+If you prefer not to type commands manually, open the repository in VS Code and use
+`Run and Debug`.
+
+You can launch workflows in two modes:
+
+- open one of the files under `scripts/` and use `Run Python File` / `Debug Python File`
+- open `Run and Debug` and choose a predefined profile from the dropdown
+
+Available VS Code profiles include:
+
+| Goal | Run and Debug profile |
+|---|---|
+| Execute the currently opened script with its default arguments | `PSO: Active script in editor` |
+| Single run with default arguments | `PSO: Run single (default)` |
+| Single run while choosing `objective`, `dim`, and `seed` | `PSO: Run single (choose objective, dim, seed)` |
+| Single run with fully custom CLI arguments | `PSO: Run single (enter args)` |
+| Quick benchmark suite | `PSO: Run benchmarks (quick)` |
+| Full benchmark suite with script defaults | `PSO: Run benchmarks (default)` |
+| Benchmark suite with custom CLI arguments | `PSO: Run benchmarks (enter args)` |
+| Quick grid search | `PSO: Run grid search (quick)` |
+| Full grid search with script defaults | `PSO: Run grid search (default)` |
+| Grid search with custom CLI arguments | `PSO: Run grid search (enter args)` |
+| Swarm animation with chosen values | `PSO: Make visualization (choose values)` |
+| Result analysis | `PSO: Analyze results (default)` |
+| Cleanup helper | `PSO: Clean outputs` |
+
+The bundled `.vscode/settings.json` selects the project interpreter and exports
+`PYTHONPATH=${workspaceFolder}` so that running the scripts from the editor
+behaves consistently with the terminal entry points.
 
 ### Quick reference table
 
@@ -203,10 +268,16 @@ dependency. Some modules such as `prettytable`, `matplotlib`, `pyswarm`,
 | Benchmark custom dims/seeds | `python -m scripts.run_benchmarks --dims 2 10 30 --seeds 42 7 123` |
 | Grid search (3×3×3, 5 seeds) | `python -m scripts.run_grid_search` |
 | Grid search, single function | `python -m scripts.run_grid_search --objective sphere --dims 2` |
-| Swarm animations (GIF) | `python -m scripts.make_viz` |
-| Single animation | `python -m scripts.make_viz --objective sphere --seed 42` |
+| Swarm animations (d=2/d=3) | `python -m scripts.make_viz --dim 2` |
+| Single animation | `python -m scripts.make_viz --objective sphere --dim 3 --seed 42` |
+| Analyze saved results | `python -m scripts.analyze_results` |
+| Clean generated outputs | `python -m scripts.clean_outputs` |
 | Unit tests | `pytest tests/test_pso.py -v` |
 | Help for any script | `python -m scripts.run_pso --help` |
+
+If you use VS Code, the table above has a one-to-one equivalent in `Run and Debug`.
+For example, `python -m scripts.run_grid_search --objective sphere --dims 2`
+matches `PSO: Run grid search (enter args)` with the same arguments entered in the prompt.
 
 ### CLI arguments for `run_pso.py`
 
@@ -225,6 +296,8 @@ dependency. Some modules such as `prettytable`, `matplotlib`, `pyswarm`,
 | `--patience` | `30` | Early-stop patience |
 | `--vmax-ratio` | auto | Velocity cap as a fraction of the search range |
 | `--grid-search` | off | Enable hyperparameter grid search |
+| `--grid-strategy` | `v0` | Strategy used during optional grid search |
+| `--grid-metric` | `final_fitness` | Metric minimized during optional grid search |
 | `--workers` | auto | Max threads for V1 ThreadPoolExecutor |
 | `--process-workers` | auto | Max processes for V2 ProcessPoolExecutor |
 | `--batch-size` | auto | Particles per process task in V2 |
@@ -252,6 +325,8 @@ defaults automatically based on the objective function and dimension.
 | `--process-workers` | auto | Max processes for V2 |
 | `--batch-size` | auto | Particles per process task in V2 |
 | `--grid-search` | off | Tune hyperparameters before each run |
+| `--grid-strategy` | `v0` | Strategy used during optional grid search |
+| `--grid-metric` | `final_fitness` | Metric minimized during optional grid search |
 | `--summary-csv` | `results/benchmark_summary.csv` | Aggregated CSV output |
 
 ### CLI arguments for `run_grid_search.py`
@@ -261,6 +336,8 @@ defaults automatically based on the objective function and dimension.
 | `--objective` | all 4 | Function(s) to optimise during search |
 | `--dims` | `2 10 30` | Dimensions to search |
 | `--seeds` | `0 1 7 42 123` | Seeds averaged per combination |
+| `--strategy` | `v0` | Strategy used inside the grid search |
+| `--metric` | `final_fitness` | Ranking metric: `final_fitness`, `auc`, `convergence_iter`, or `time_s` |
 | `--w` | auto | Inertia values to test |
 | `--c1` | auto | Cognitive values to test |
 | `--c2` | auto | Social values to test |
@@ -269,6 +346,9 @@ defaults automatically based on the objective function and dimension.
 | `--tol` | `1e-8` | Tolerance used inside search runs |
 | `--patience` | `40` | Early-stop patience inside search runs |
 | `--vmax-ratio` | auto | Velocity cap override |
+| `--workers` | auto | Max threads when `--strategy v1` |
+| `--process-workers` | auto | Max processes when `--strategy v2` |
+| `--batch-size` | auto | Batch size when `--strategy v2` |
 | `--out-dir` | `results/grid_search` | CSV output directory |
 | `--verbose` | off | Log every combination/seed |
 
@@ -280,6 +360,7 @@ search space chosen for each objective function.
 | Argument | Default | Description |
 |---|---|---|
 | `--objective` | all 4 | Function(s) to animate |
+| `--dim` | `2` | Animation dimension (`2` or `3`) |
 | `--seed` | `42` | Random seed |
 | `--n-particles` | `40` | Swarm size for the animation run |
 | `--max-iters` | `150` | Iteration budget |
@@ -288,11 +369,32 @@ search space chosen for each objective function.
 | `--w` | `0.7` | Inertia weight |
 | `--c1` | `1.5` | Cognitive coefficient |
 | `--c2` | `1.5` | Social coefficient |
+| `--tol` | `1e-10` | Early-stop tolerance |
+| `--patience` | `30` | Early-stop patience |
 | `--vmax-ratio` | `0.2` | Velocity cap as a fraction of range |
 | `--fps` | `6` | Frames per second |
 | `--format` | `gif` | Output format (`gif` or `mp4`) |
 | `--resolution` | `120` | Contour-grid resolution |
 | `--max-frames` | none | Optional frame cap |
+
+### Analyze persisted experiments
+
+```bash
+python -m scripts.analyze_results
+python -m scripts.analyze_results --objective sphere ackley --dim 2 10
+python -m scripts.clean_outputs
+```
+
+This script loads `summary.json` and the per-iteration CSV files saved under
+`results/runs/`, then generates:
+
+- aggregated summary tables
+- mean convergence plots
+- final fitness boxplots
+- mean speedup plots versus `V0`
+
+By default the generated analysis is written to `reports/analysis/`, so `results/`
+stays focused on raw experiment outputs.
 
 ### Recommended way to compare V0, V1, and V2
 
@@ -649,11 +751,14 @@ Full-range initialisation causes large initial jumps especially at d=30, where p
 
 ### Persistence format: JSON + CSV
 
-JSON for configuration and scalar metrics — human-readable, structured, easy to load with `json.load()` or `pandas.read_json()`, handles nested structures like `TimingBreakdown` naturally.
+JSON for configuration, execution metadata and scalar metrics — human-readable,
+structured, easy to load with `json.load()` or `pandas.read_json()`, and able to
+store nested timing breakdowns plus platform/git metadata.
 
-CSV for per-iteration convergence curves — compact, trivially loadable with `pandas.read_csv()`, directly plottable without parsing.
+CSV for per-iteration convergence curves and timing records — compact, trivially
+loadable with `pandas.read_csv()`, directly plottable without parsing.
 
-Result directories named `results/<function>_d<dim>_s<seed>/` so multiple experiments coexist without overwriting each other.
+Result directories named `results/runs/<function>_d<dim>_s<seed>/` so multiple experiments coexist without overwriting each other while keeping the top-level `results/` folder tidy.
 
 ### Logging: file only
 
@@ -680,7 +785,7 @@ Reproducibility is treated as a core requirement of the project:
 - Every run is parameterised by an explicit random seed.
 - V0, V1, and V2 are launched with the same configuration and same seed so
   their results are directly comparable.
-- Structured outputs are saved to disk in `results/` and `logs/`.
+- Structured raw outputs are saved under `results/`, analysis artefacts under `reports/`, and visual/logging artefacts under `logs/`.
 - The unit tests explicitly check reproducibility by seed.
 
 This makes it possible to rerun experiments, compare versions fairly, and

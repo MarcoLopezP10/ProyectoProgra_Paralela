@@ -24,6 +24,14 @@ python -m scripts.run_pso --no-save
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
+
+# Allow direct execution as `python scripts/run_pso.py` from editors like
+# VS Code while keeping `python -m scripts.run_pso` working unchanged.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from experiment.run_single import RunConfig, run_one_objective
 from objectives.sphere import sphere
@@ -97,9 +105,14 @@ def parse_args(argv=None) -> argparse.Namespace:
     # Grid search
     p.add_argument("--grid-search", action="store_true",
                    help="Run a lightweight grid search before the main run.")
+    p.add_argument("--grid-strategy", choices=["v0", "v1", "v2"], default="v0",
+                   help="Strategy used during the optional grid search.")
+    p.add_argument("--grid-metric", choices=["final_fitness", "auc", "convergence_iter", "time_s"],
+                   default="final_fitness",
+                   help="Metric minimized during the optional grid search.")
 
     # Output
-    p.add_argument("--out-dir",   default="results",           help="Results directory.")
+    p.add_argument("--out-dir",   default="results/runs",      help="Results directory.")
     p.add_argument("--plots-dir", default="logs/convergence",  help="Plots directory.")
     p.add_argument("--log-dir",   default="logs",              help="Log directory.")
     p.add_argument("--no-save",   action="store_true",         help="Skip saving files.")
@@ -130,6 +143,8 @@ def main(argv=None) -> None:
                     c2=args.c2,
                     n_particles=args.n_particles,
                     use_grid_search=args.grid_search,
+                    grid_metric=args.grid_metric,
+                    grid_strategy=args.grid_strategy,
                     thread_max_workers=args.workers,
                     process_max_workers=args.process_workers,
                     batch_size=args.batch_size,
@@ -141,6 +156,7 @@ def main(argv=None) -> None:
                     out_dir=args.out_dir,
                     plots_dir=args.plots_dir,
                     log_dir=args.log_dir,
+                    repo_root=".",
                     save_files=not args.no_save,
                 )
 

@@ -6,6 +6,7 @@ Evaluator implementations that enable concurrency / parallelism.
 from __future__ import annotations
 
 import os
+import pickle
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from itertools import islice
 from typing import Callable, Iterable, Iterator, List, Optional, Sequence
@@ -66,7 +67,11 @@ class ThreadPoolEvaluator(FitnessEvaluator):
 
 
 class ProcessPoolEvaluator(FitnessEvaluator):
-    """Compute fitness values in parallel using processes and batched IPC."""
+    """Compute fitness values in parallel using processes and batched IPC.
+
+    The objective function must be picklable, which in practice means using
+    a top-level function rather than a lambda or local closure.
+    """
 
     def __init__(
         self,
@@ -83,9 +88,19 @@ class ProcessPoolEvaluator(FitnessEvaluator):
         self.batch_size = batch_size
         self._executor: Optional[ProcessPoolExecutor] = None
 
+    def _validate_objective(self) -> None:
+        """Fail fast with a clear error if the objective cannot be pickled."""
+        try:
+            pickle.dumps(self.objective_fn)
+        except Exception as exc:
+            raise TypeError(
+                "V2 multiprocessing requires a picklable top-level objective function."
+            ) from exc
+
     def open(self) -> None:
         """Create the process pool once and reuse it across the full PSO run."""
         if self._executor is None:
+            self._validate_objective()
             self._executor = ProcessPoolExecutor(max_workers=self.max_workers)
 
     def close(self) -> None:
@@ -117,9 +132,31 @@ class ProcessPoolEvaluator(FitnessEvaluator):
         return fitness
 
 
+def build_evaluator(
+    strategy: str,
+    objective_fn: Callable[[NDArray], float],
+    max_workers: Optional[int] = None,
+    batch_size: Optional[int] = None,
+) -> FitnessEvaluator:
+    """Factory shared by scripts and grid search to keep strategies aligned."""
+    strategy = strategy.lower()
+    if strategy in {"v0", "sequential"}:
+        return SequentialEvaluator(objective_fn)
+    if strategy in {"v1", "thread", "threading"}:
+        return ThreadPoolEvaluator(objective_fn, max_workers=max_workers)
+    if strategy in {"v2", "process", "multiprocessing"}:
+        return ProcessPoolEvaluator(
+            objective_fn,
+            max_workers=max_workers,
+            batch_size=batch_size,
+        )
+    raise ValueError(f"Unknown evaluation strategy: {strategy}")
+
+
 __all__ = [
     "FitnessEvaluator",
     "SequentialEvaluator",
     "ThreadPoolEvaluator",
     "ProcessPoolEvaluator",
+    "build_evaluator",
 ]

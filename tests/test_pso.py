@@ -111,6 +111,21 @@ class TestReproducibility:
             "Different seeds produced identical histories — check RNG seeding."
         )
 
+    def test_same_instance_can_be_rerun_from_initial_state(self):
+        """Calling run() twice on the same PSO instance must restart from scratch."""
+        pso = _make_pso(sphere, seed=42, dim=4, n_particles=20, max_iters=80)
+
+        pos_a, fit_a, _, iters_a = pso.run()
+        history_a = list(pso.history)
+
+        pos_b, fit_b, _, iters_b = pso.run()
+        history_b = list(pso.history)
+
+        assert fit_b == pytest.approx(fit_a)
+        assert iters_b == iters_a
+        np.testing.assert_allclose(pos_b, pos_a)
+        assert history_b == pytest.approx(history_a)
+
     @pytest.mark.parametrize("obj", [sphere, ackley, rosenbrock, rastrigin])
     def test_all_objectives_reproducible(self, obj):
         """Reproducibility holds for every benchmark function."""
@@ -160,6 +175,12 @@ class TestMultiprocessingEvaluator:
         assert iters_v2 == iters_v0
         np.testing.assert_allclose(pos_v2, pos_v0)
         assert pso_v2.history == pytest.approx(pso_v0.history)
+
+    def test_process_evaluator_rejects_non_picklable_objective(self):
+        process_eval = ProcessPoolEvaluator(lambda x: float(np.sum(x)), max_workers=2)
+
+        with pytest.raises(TypeError, match="picklable top-level objective function"):
+            process_eval.open()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -235,6 +256,21 @@ class TestBoundsEnforcement:
         new_pos, new_vel = cb.apply(pos, vel)
         np.testing.assert_array_equal(new_pos, pos)
         np.testing.assert_array_equal(new_vel, vel)
+
+    def test_swarm_rejects_invalid_shape_or_size(self):
+        rng = np.random.default_rng(0)
+
+        with pytest.raises(ValueError):
+            Swarm(n_particles=0, dim=2, bounds=([-5.0, -5.0], [5.0, 5.0]), rng=rng)
+
+        with pytest.raises(ValueError):
+            Swarm(n_particles=10, dim=0, bounds=([], []), rng=rng)
+
+        with pytest.raises(ValueError):
+            Swarm(n_particles=10, dim=2, bounds=([-5.0], [5.0, 5.0]), rng=rng)
+
+        with pytest.raises(ValueError):
+            Swarm(n_particles=10, dim=2, bounds=([1.0, -5.0], [1.0, 5.0]), rng=rng)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

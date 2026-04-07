@@ -35,14 +35,15 @@ class FitnessEvaluator(ABC):
 class SequentialEvaluator(FitnessEvaluator):
     """Compute fitness values one-by-one in Python."""
 
-    def __init__(self, objective_fn: Callable[[NDArray], float]):
-        """Parameters
+    def __init__(self, objective_fn: Callable[[NDArray], float]) -> None:
+        """
+        Parameters
         ----------
         objective_fn : Callable
             Function to optimize. Should take a single position and return a scalar fitness.
         """
-        
         self.objective_fn = objective_fn
 
     def evaluate(self, positions: Iterable[NDArray]) -> List[float]:
+        """Evaluate positions serially while preserving input order."""
         return [self.objective_fn(x) for x in positions]

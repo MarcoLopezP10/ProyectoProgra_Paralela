@@ -1,12 +1,21 @@
-from .particle import Particle
-import numpy as np
-from numpy.typing import NDArray
+"""core.swarm
+
+Swarm container responsible for particle collection state and global-best
+bookkeeping. The mathematical PSO loop lives in `core.pso`, while this class
+keeps the mutable swarm state focused and testable.
+"""
+
+from __future__ import annotations
+
 from typing import List
 
+import numpy as np
+from numpy.typing import NDArray
+
+from .particle import Particle
+
 class Swarm:
-    """
-    Class representing a PSO swarm.
-    """
+    """Collection of particles plus the swarm-wide best solution."""
 
     def __init__(
         self,
@@ -25,6 +34,18 @@ class Swarm:
             bounds (tuple[list, list]): Lower and upper bounds.
             rng (np.random.Generator): Random number generator.
         """
+        if n_particles < 1:
+            raise ValueError("n_particles must be >= 1")
+        if dim < 1:
+            raise ValueError("dim must be >= 1")
+        if len(bounds[0]) != dim or len(bounds[1]) != dim:
+            raise ValueError("bounds must provide one lower/upper value per dimension")
+
+        lower = np.asarray(bounds[0], dtype=float)
+        upper = np.asarray(bounds[1], dtype=float)
+        if np.any(lower >= upper):
+            raise ValueError("each lower bound must be strictly less than the upper bound")
+
         self.particles: List[Particle] = [
             Particle(dim, bounds, rng, vmax_ratio=vmax_ratio)
             for _ in range(n_particles)
@@ -54,6 +75,8 @@ class Swarm:
                 p.best_fitness = fit
                 p.best_position = pos.copy()
 
+            # Swarm best is monotonic: once a better point is found, it becomes
+            # the shared reference for the next velocity update step.
             if fit < self.global_best_fitness:
                 self.global_best_fitness = fit
                 self.global_best_position = pos.copy()

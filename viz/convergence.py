@@ -25,7 +25,7 @@ def save_convergence_plot(
     """Save a polished convergence plot for V0/V1/V2 comparisons."""
     import matplotlib.pyplot as plt
 
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(9.5, 5.8))
     ax.set_facecolor("#fbfbfd")
@@ -66,7 +66,7 @@ def save_convergence_plot(
         linewidth=2.0,
         color="#7f7f7f",
         alpha=0.85,
-        label="PySwarm: Final Fitness",
+        label="PySwarm: final fitness reference",
     )
 
     ax.set_xlabel("Iteration", fontsize=11)

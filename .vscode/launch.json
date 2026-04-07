@@ -1,0 +1,289 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "PSO: Active script in editor",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "program": "${file}",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
+      "purpose": [
+        "debug-in-terminal"
+      ]
+    },
+    {
+      "name": "PSO: Run single (default)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_pso",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "PSO: Run single (choose objective, dim, seed)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_pso",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--objective",
+        "${input:singleObjective}",
+        "--dim",
+        "${input:singleDim}",
+        "--seed",
+        "${input:singleSeed}"
+      ]
+    },
+    {
+      "name": "PSO: Run single (enter args)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_pso",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": "${command:pickArgs}"
+    },
+    {
+      "name": "PSO: Run benchmarks (quick)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_benchmarks",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--dims",
+        "2",
+        "--seeds",
+        "42",
+        "--no-grid-search"
+      ]
+    },
+    {
+      "name": "PSO: Run benchmarks (default)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_benchmarks",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "PSO: Run benchmarks (enter args)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_benchmarks",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": "${command:pickArgs}"
+    },
+    {
+      "name": "PSO: Run grid search (quick)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_grid_search",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--objective",
+        "sphere",
+        "--dims",
+        "2",
+        "--seeds",
+        "42",
+        "7",
+        "--max-iters",
+        "100"
+      ]
+    },
+    {
+      "name": "PSO: Run grid search (default)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_grid_search",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "PSO: Run grid search (enter args)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_grid_search",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": "${command:pickArgs}"
+    },
+    {
+      "name": "PSO: Make visualization (default)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.make_viz",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "PSO: Make visualization (choose values)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.make_viz",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--objective",
+        "${input:vizObjective}",
+        "--dim",
+        "${input:vizDim}",
+        "--seed",
+        "${input:vizSeed}",
+        "--format",
+        "${input:vizFormat}"
+      ]
+    },
+    {
+      "name": "PSO: Make visualization (enter args)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.make_viz",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": "${command:pickArgs}"
+    },
+    {
+      "name": "PSO: Analyze results (default)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.analyze_results",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "PSO: Analyze results (enter args)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.analyze_results",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": "${command:pickArgs}"
+    },
+    {
+      "name": "PSO: Clean outputs",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.clean_outputs",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "PSO: Clean outputs (remove logs too)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.clean_outputs",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--remove-logs"
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "singleObjective",
+      "type": "pickString",
+      "description": "Objective function for scripts.run_pso",
+      "default": "sphere",
+      "options": [
+        "sphere",
+        "ackley",
+        "rosenbrock",
+        "rastrigin"
+      ]
+    },
+    {
+      "id": "singleDim",
+      "type": "promptString",
+      "description": "Dimension for scripts.run_pso",
+      "default": "2"
+    },
+    {
+      "id": "singleSeed",
+      "type": "promptString",
+      "description": "Seed for scripts.run_pso",
+      "default": "42"
+    },
+    {
+      "id": "vizObjective",
+      "type": "pickString",
+      "description": "Objective function for scripts.make_viz",
+      "default": "sphere",
+      "options": [
+        "sphere",
+        "ackley",
+        "rosenbrock",
+        "rastrigin"
+      ]
+    },
+    {
+      "id": "vizDim",
+      "type": "pickString",
+      "description": "Dimension for scripts.make_viz",
+      "default": "2",
+      "options": [
+        "2",
+        "3"
+      ]
+    },
+    {
+      "id": "vizSeed",
+      "type": "promptString",
+      "description": "Seed for scripts.make_viz",
+      "default": "42"
+    },
+    {
+      "id": "vizFormat",
+      "type": "pickString",
+      "description": "Output format for scripts.make_viz",
+      "default": "gif",
+      "options": [
+        "gif",
+        "mp4"
+      ]
+    }
+  ]
+}
