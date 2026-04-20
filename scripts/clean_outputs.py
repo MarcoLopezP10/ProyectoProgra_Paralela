@@ -37,6 +37,17 @@ def _safe_remove(path: str) -> None:
             pass
 
 
+def _remove_python_cache(root: str = ".") -> None:
+    """Remove local Python bytecode caches before packaging the project."""
+    for current_root, dirs, files in os.walk(root):
+        for dirname in list(dirs):
+            if dirname == "__pycache__":
+                shutil.rmtree(os.path.join(current_root, dirname), ignore_errors=True)
+        for filename in files:
+            if filename.endswith(".pyc"):
+                _safe_remove(os.path.join(current_root, filename))
+
+
 def main(argv=None) -> None:
     args = parse_args(argv)
 
@@ -54,6 +65,8 @@ def main(argv=None) -> None:
 
     for target in targets:
         _safe_remove(target)
+
+    _remove_python_cache(".")
 
     os.makedirs("results", exist_ok=True)
     print("Cleaned generated outputs.")
