@@ -1,0 +1,84 @@
+{
+  "case_name": "edl_6u_vpe_losses",
+  "demand": 1263.0,
+  "source": {
+    "summary": "IEEE 6-unit ELD test system with valve-point effects and transmission losses.",
+    "cost_data": "Hardiansyah, A Modified Particle Swarm Optimization Technique for Economic Load Dispatch with Valve-Point Effect (IJISA 2013).",
+    "loss_data": "Ali R. Al-Roomi, Economic Load Dispatch Test Systems Repository, IEEE 6-Units ELD Test System No.1."
+  },
+  "generators": [
+    {
+      "name": "G1",
+      "p_min": 100.0,
+      "p_max": 500.0,
+      "a": 0.007,
+      "b": 7.0,
+      "c": 240.0,
+      "e": 300.0,
+      "f": 0.035
+    },
+    {
+      "name": "G2",
+      "p_min": 50.0,
+      "p_max": 200.0,
+      "a": 0.0095,
+      "b": 10.0,
+      "c": 200.0,
+      "e": 200.0,
+      "f": 0.042
+    },
+    {
+      "name": "G3",
+      "p_min": 80.0,
+      "p_max": 300.0,
+      "a": 0.009,
+      "b": 8.5,
+      "c": 220.0,
+      "e": 200.0,
+      "f": 0.042
+    },
+    {
+      "name": "G4",
+      "p_min": 50.0,
+      "p_max": 150.0,
+      "a": 0.009,
+      "b": 11.0,
+      "c": 200.0,
+      "e": 150.0,
+      "f": 0.063
+    },
+    {
+      "name": "G5",
+      "p_min": 50.0,
+      "p_max": 200.0,
+      "a": 0.008,
+      "b": 10.5,
+      "c": 220.0,
+      "e": 150.0,
+      "f": 0.063
+    },
+    {
+      "name": "G6",
+      "p_min": 50.0,
+      "p_max": 120.0,
+      "a": 0.0075,
+      "b": 12.0,
+      "c": 190.0,
+      "e": 150.0,
+      "f": 0.063
+    }
+  ],
+  "losses": {
+    "quadratic_base_mva": 100.0,
+    "B": [
+      [0.0017, 0.0012, 0.0007, -0.0001, -0.0005, -0.0002],
+      [0.0012, 0.0014, 0.0009, 0.0001, -0.0006, -0.0001],
+      [0.0007, 0.0009, 0.0031, 0.0, -0.001, -0.0006],
+      [-0.0001, 0.0001, 0.0, 0.0024, -0.0006, -0.0008],
+      [-0.0005, -0.0006, -0.001, -0.0006, 0.0129, -0.0002],
+      [-0.0002, -0.0001, -0.0006, -0.0008, -0.0002, 0.015]
+    ],
+    "B0": [-0.0003908, -0.0001297, 0.0007047, 0.0000591, 0.0002161, -0.0006635],
+    "B00": 0.056
+  }
+}
