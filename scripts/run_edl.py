@@ -85,6 +85,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="Directory for EDL output files.",
     )
     parser.add_argument(
+        "--plots-dir",
+        default="reports/edl",
+        help="Directory for generated EDL report figures.",
+    )
+    parser.add_argument(
         "--log-dir",
         default="logs",
         help="Directory for EDL logs.",
@@ -93,6 +98,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--no-save",
         action="store_true",
         help="Skip writing JSON/CSV outputs to disk.",
+    )
+    parser.add_argument(
+        "--no-plots",
+        action="store_true",
+        help="Skip generating the essential EDL report figures.",
     )
     return parser.parse_args(argv)
 
@@ -116,8 +126,10 @@ def main(argv=None) -> None:
         batch_size=args.batch_size,
         penalty_power_balance=args.penalty_power_balance,
         out_dir=args.out_dir,
+        plots_dir=args.plots_dir,
         log_dir=args.log_dir,
         save_files=not args.no_save,
+        make_plots=not args.no_plots,
     )
     run_edl_suite(cfg)
 

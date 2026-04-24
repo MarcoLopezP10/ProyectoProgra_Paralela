@@ -220,6 +220,276 @@
       "args": [
         "--remove-logs"
       ]
+    },
+    {
+      "name": "EDL: Custom Case (all valid variants)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_edl",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "presentation": {
+        "group": "EDL",
+        "order": 1
+      },
+      "args": [
+        "--case",
+        "${input:edlCase}",
+        "--seed",
+        "${input:edlSeed}"
+      ]
+    },
+    {
+      "name": "EDL: Custom Case (single variant)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_edl",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "presentation": {
+        "group": "EDL",
+        "order": 2
+      },
+      "args": [
+        "--case",
+        "${input:edlCase}",
+        "--variant",
+        "${input:edlVariant}",
+        "--seed",
+        "${input:edlSeed}"
+      ]
+    },
+    {
+      "name": "EDL: Regenerate Reports",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.analyze_edl",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "presentation": {
+        "group": "EDL",
+        "order": 3
+      },
+      "args": [
+        "--case",
+        "${input:edlCaseName}",
+        "--seed",
+        "${input:edlSeed}"
+      ]
+    },
+    {
+      "name": "EDL: 3U Validation (quick)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_edl",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "presentation": {
+        "group": "EDL",
+        "order": 4
+      },
+      "args": [
+        "--case",
+        "cases/edl_case_3u.json",
+        "--seed",
+        "42",
+        "--n-particles",
+        "20",
+        "--max-iters",
+        "50",
+        "--no-plots"
+      ]
+    },
+    {
+      "name": "EDL: 3U Final Run",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_edl",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "presentation": {
+        "group": "EDL",
+        "order": 5
+      },
+      "args": [
+        "--case",
+        "cases/edl_case_3u.json",
+        "--seed",
+        "42",
+        "--n-particles",
+        "60",
+        "--max-iters",
+        "300"
+      ]
+    },
+    {
+      "name": "EDL: 6U Validation (quick)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_edl",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "presentation": {
+        "group": "EDL",
+        "order": 6
+      },
+      "args": [
+        "--case",
+        "cases/edl_case_6u.json",
+        "--seed",
+        "42",
+        "--n-particles",
+        "20",
+        "--max-iters",
+        "50",
+        "--no-plots"
+      ]
+    },
+    {
+      "name": "EDL: 6U Final Run",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_edl",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "presentation": {
+        "group": "EDL",
+        "order": 7
+      },
+      "args": [
+        "--case",
+        "cases/edl_case_6u.json",
+        "--seed",
+        "42",
+        "--n-particles",
+        "80",
+        "--max-iters",
+        "400"
+      ]
+    },
+    {
+      "name": "EDL: 13U Validation (quick)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_edl",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "presentation": {
+        "group": "EDL",
+        "order": 8
+      },
+      "args": [
+        "--case",
+        "cases/edl_case_13u.json",
+        "--variant",
+        "edl_1",
+        "edl_2",
+        "--seed",
+        "42",
+        "--n-particles",
+        "20",
+        "--max-iters",
+        "30",
+        "--no-plots"
+      ]
+    },
+    {
+      "name": "EDL: 13U Final Run",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_edl",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "presentation": {
+        "group": "EDL",
+        "order": 9
+      },
+      "args": [
+        "--case",
+        "cases/edl_case_13u.json",
+        "--variant",
+        "edl_1",
+        "edl_2",
+        "--seed",
+        "42",
+        "--n-particles",
+        "100",
+        "--max-iters",
+        "500"
+      ]
+    },
+    {
+      "name": "EDL: 40U Validation (quick)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_edl",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "presentation": {
+        "group": "EDL",
+        "order": 10
+      },
+      "args": [
+        "--case",
+        "cases/edl_case_40u.json",
+        "--variant",
+        "edl_1",
+        "edl_2",
+        "--seed",
+        "42",
+        "--n-particles",
+        "20",
+        "--max-iters",
+        "20",
+        "--no-plots"
+      ]
+    },
+    {
+      "name": "EDL: 40U Final Run",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/usr/local/bin/python3",
+      "module": "scripts.run_edl",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "presentation": {
+        "group": "EDL",
+        "order": 11
+      },
+      "args": [
+        "--case",
+        "cases/edl_case_40u.json",
+        "--variant",
+        "edl_1",
+        "edl_2",
+        "--seed",
+        "42",
+        "--n-particles",
+        "120",
+        "--max-iters",
+        "600"
+      ]
     }
   ],
   "inputs": [
@@ -284,6 +554,48 @@
         "gif",
         "mp4"
       ]
+    },
+    {
+      "id": "edlCase",
+      "type": "pickString",
+      "description": "EDL case for scripts.run_edl",
+      "default": "cases/edl_case_3u.json",
+      "options": [
+        "cases/edl_case_3u.json",
+        "cases/edl_case_6u.json",
+        "cases/edl_case_13u.json",
+        "cases/edl_case_40u.json"
+      ]
+    },
+    {
+      "id": "edlCaseName",
+      "type": "pickString",
+      "description": "Saved EDL case_name for scripts.analyze_edl",
+      "default": "edl_3u_demo",
+      "options": [
+        "edl_3u_demo",
+        "edl_6u_vpe_losses",
+        "edl_13u_vpe",
+        "edl_40u_vpe"
+      ]
+    },
+    {
+      "id": "edlVariant",
+      "type": "pickString",
+      "description": "EDL variant for scripts.run_edl",
+      "default": "edl_1",
+      "options": [
+        "edl_1",
+        "edl_2",
+        "edl_3",
+        "edl_4"
+      ]
+    },
+    {
+      "id": "edlSeed",
+      "type": "promptString",
+      "description": "Seed for scripts.run_edl",
+      "default": "42"
     }
   ]
 }

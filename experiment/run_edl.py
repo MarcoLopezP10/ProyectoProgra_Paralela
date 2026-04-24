@@ -90,10 +90,12 @@ class EDLRunConfig:
     batch_size: Optional[int] = None
     penalty_power_balance: float = 1e6
     out_dir: str = "results/edl"
+    plots_dir: str = "reports/edl"
     log_dir: str = "logs"
     log_file: str = "edl_summary.log"
     repo_root: str = "."
     save_files: bool = True
+    make_plots: bool = True
 
 
 def _build_pso(
@@ -671,6 +673,8 @@ def run_edl_suite(cfg: EDLRunConfig) -> dict[str, object]:
             rows.extend(_summary_to_rows(summary))
 
     aggregate_csv_path = None
+    plots_root = None
+    plot_artifacts: List[str] = []
     if cfg.save_files:
         aggregate_csv_path = os.path.join(
             edl_case_dir(cfg.out_dir, case.case_name),
@@ -679,11 +683,31 @@ def run_edl_suite(cfg: EDLRunConfig) -> dict[str, object]:
         save_edl_results_csv(rows, aggregate_csv_path)
         print(f"\nAggregate CSV -> {aggregate_csv_path}")
 
+        if cfg.make_plots:
+            from scripts.analyze_edl import analyze_edl_results
+
+            analysis_result = analyze_edl_results(
+                results_dir=cfg.out_dir,
+                out_dir=cfg.plots_dir,
+                case_names=[case.case_name],
+                variants=cfg.variants,
+                seeds=cfg.seeds,
+                quiet=True,
+            )
+            plot_artifacts = list(analysis_result.get("artifacts") or [])
+            plots_root = os.path.join(cfg.plots_dir, case.case_name)
+            print(f"Reports -> {plots_root}")
+            print(f"Essential figures -> {len(plot_artifacts)}")
+    elif cfg.make_plots:
+        print("\nReports skipped -> disable --no-save or rerun scripts.analyze_edl on saved results.")
+
     return {
         "case_name": case.case_name,
         "summaries": summaries,
         "rows": rows,
         "aggregate_csv_path": aggregate_csv_path,
+        "plots_root": plots_root,
+        "plot_artifacts": plot_artifacts,
     }
 
 

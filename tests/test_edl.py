@@ -20,6 +20,7 @@ from experiment.run_edl import (
     _format_dispatch_lines,
     _group_dispatches,
     _summarize_powers,
+    run_edl_suite,
     run_one_edl_variant,
 )
 from objectives.economic_dispatch import (
@@ -30,6 +31,7 @@ from objectives.economic_dispatch import (
     load_case,
 )
 from parallel.evaluator import ProcessPoolEvaluator
+from scripts.analyze_edl import analyze_edl_results
 from utils.edl_io import EDLMethodResult
 
 
@@ -286,3 +288,83 @@ def test_6u_loss_variant_stays_feasible(monkeypatch, tmp_path) -> None:
     assert 1.0 < summary.v0.transmission_loss < 50.0
     assert summary.v0.best_fitness is not None
     assert summary.v0.best_fitness < 1e6
+
+
+def test_analyze_edl_results_generates_reports_from_saved_run(monkeypatch, tmp_path) -> None:
+    original_open = ProcessPoolEvaluator.open
+
+    def fake_open(self) -> None:
+        raise PermissionError("sandbox blocked multiprocessing")
+
+    monkeypatch.setattr(ProcessPoolEvaluator, "open", fake_open)
+    try:
+        case = _make_case()
+        cfg = EDLRunConfig(
+            seeds=[7],
+            variants=["edl_1"],
+            n_particles=6,
+            max_iters=5,
+            patience=5,
+            out_dir=str(tmp_path / "results"),
+            log_dir=str(tmp_path / "logs"),
+            save_files=True,
+            make_plots=False,
+        )
+        run_one_edl_variant(case, "edl_1", cfg, seed=7)
+    finally:
+        monkeypatch.setattr(ProcessPoolEvaluator, "open", original_open)
+
+    stale_dir = tmp_path / "reports" / "toy_case" / "seed_7" / "edl_1"
+    stale_dir.mkdir(parents=True, exist_ok=True)
+    (stale_dir / "metrics.png").write_text("stale", encoding="utf-8")
+    (tmp_path / "reports" / "analysis_index.csv").write_text("stale", encoding="utf-8")
+
+    report = analyze_edl_results(
+        results_dir=str(tmp_path / "results"),
+        out_dir=str(tmp_path / "reports"),
+        case_names=["toy_case"],
+        variants=["edl_1"],
+        seeds=[7],
+        quiet=True,
+    )
+
+    assert report["entries"] == 1
+    assert len(report["artifacts"]) == 3
+    assert (tmp_path / "reports" / "toy_case" / "seed_7" / "convergence_overview.png").exists()
+    assert (tmp_path / "reports" / "toy_case" / "seed_7" / "dispatch_overview.png").exists()
+    assert (tmp_path / "reports" / "toy_case" / "seed_7" / "summary_dashboard.png").exists()
+    assert not (tmp_path / "reports" / "toy_case" / "seed_7" / "edl_1").exists()
+    assert not (tmp_path / "reports" / "analysis_index.csv").exists()
+
+
+def test_run_edl_suite_can_generate_plots_automatically(monkeypatch, tmp_path) -> None:
+    original_open = ProcessPoolEvaluator.open
+
+    def fake_open(self) -> None:
+        raise PermissionError("sandbox blocked multiprocessing")
+
+    monkeypatch.setattr(ProcessPoolEvaluator, "open", fake_open)
+    try:
+        cfg = EDLRunConfig(
+            case_path="cases/edl_case_3u.json",
+            seeds=[5],
+            variants=["edl_1"],
+            n_particles=6,
+            max_iters=5,
+            patience=5,
+            out_dir=str(tmp_path / "results"),
+            plots_dir=str(tmp_path / "reports"),
+            log_dir=str(tmp_path / "logs"),
+            save_files=True,
+            make_plots=True,
+        )
+        result = run_edl_suite(cfg)
+    finally:
+        monkeypatch.setattr(ProcessPoolEvaluator, "open", original_open)
+
+    assert result["plots_root"] is not None
+    assert Path(result["plots_root"]).exists()
+    assert len(result["plot_artifacts"]) == 3
+    assert (tmp_path / "reports" / "edl_3u_demo" / "seed_5" / "convergence_overview.png").exists()
+    assert (tmp_path / "reports" / "edl_3u_demo" / "seed_5" / "dispatch_overview.png").exists()
+    assert (tmp_path / "reports" / "edl_3u_demo" / "seed_5" / "summary_dashboard.png").exists()

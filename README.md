@@ -15,6 +15,8 @@ Project documents:
 
 - Design notes: `docs/design.md`
 - Final report: `docs/final_report.md`
+- EDL case ladder and technical notes: `cases/README.md`
+- EDL execution protocol: `docs/edl_execution_protocol.md`
 
 ---
 
@@ -46,6 +48,43 @@ This project implements the canonical PSO algorithm for minimising continuous fu
 
 The core PSO algorithm never changes between versions. Only the fitness evaluator is swapped, which is possible because of the `FitnessEvaluator` abstraction.
 
+### Applied use case: Economic Load Dispatch (EDL)
+
+Beyond synthetic benchmark functions, the project now includes an applied
+engineering use case: **Economic Load Dispatch (EDL)**.
+
+In EDL, PSO searches for the best generation vector
+\((P_1, \dots, P_n)\) that minimises fuel cost while respecting:
+
+- generator lower and upper bounds
+- power-balance constraints
+- optional transmission losses
+- optional valve-point effects
+
+The same `V0`, `V1`, and `V2` PSO implementations are reused without changing
+the optimisation loop. Only the objective function and the evaluator strategy
+change, which makes the EDL workflow a clean case study for comparing
+sequential, concurrent and parallel fitness evaluation on a realistic problem.
+
+The implemented EDL variants are:
+
+| Variant | Meaning |
+|---|---|
+| `edl_1` | Base quadratic cost, no valve-point, no losses |
+| `edl_2` | Valve-point cost, no losses |
+| `edl_3` | Quadratic cost with transmission losses |
+| `edl_4` | Valve-point cost with transmission losses |
+
+The available case ladder is:
+
+- `3U`: small validation case
+- `6U`: medium constrained case
+- `13U`: large valve-point case
+- `40U`: very large valve-point case
+
+See `cases/README.md` for the mathematical formulation and the JSON schema,
+and `docs/edl_execution_protocol.md` for the recommended execution workflow.
+
 ---
 
 ## 2. Project Structure
@@ -73,20 +112,24 @@ PRACTICA-2.2/
 │   ├── sphere.py               # Sphere — unimodal, convex
 │   ├── ackley.py               # Ackley — multimodal, origin trap
 │   ├── rosenbrock.py           # Rosenbrock — narrow curved valley
-│   └── rastrigin.py            # Rastrigin — highly multimodal
+│   ├── rastrigin.py            # Rastrigin — highly multimodal
+│   └── economic_dispatch.py    # EDL objective family (base / losses / valve-point)
 │
 ├── experiment/                 # Experiment orchestration
 │   ├── grid_search.py          # Multi-seed grid search
-│   └── run_single.py           # Single experiment runner (V0 + V1 + V2 + baseline)
+│   ├── run_single.py           # Single experiment runner (V0 + V1 + V2 + baseline)
+│   └── run_edl.py              # EDL runner across variants and PSO versions
 │
 ├── baseline/                   # External reference
 │   └── pswarm.py               # PySwarm library wrapper
 │
 ├── viz/                        # Visualisation
 │   ├── convergence.py          # Convergence curves (fitness vs iteration)
-│   └── swarm_animation.py      # Swarm evolution animation for d=2/d=3
+│   ├── swarm_animation.py      # Swarm evolution animation for d=2/d=3
+│   └── edl_plots.py            # Minimal EDL report figures
 │
 ├── utils/                      # Cross-cutting utilities
+│   ├── edl_io.py               # EDL-specific persistence helpers
 │   ├── io.py                   # Structured persistence (JSON + CSV)
 │   ├── logger.py               # Structured logging with context
 │   └── metadata.py             # Execution metadata for reproducibility
@@ -97,16 +140,27 @@ PRACTICA-2.2/
 │   ├── run_grid_search.py      # Hyperparameter grid search
 │   ├── make_viz.py             # Swarm animations
 │   ├── analyze_results.py      # Result analysis and summary plots
+│   ├── run_edl.py              # Run EDL cases and generate essential reports
+│   ├── analyze_edl.py          # Regenerate EDL reports from saved runs
 │   └── clean_outputs.py        # Generated-output cleanup helper
+│
+├── cases/                      # EDL datasets and technical notes
+│   ├── README.md               # EDL formulation, schema, and case ladder
+│   ├── edl_case_3u.json        # Small validation case
+│   ├── edl_case_6u.json        # Medium case with losses
+│   ├── edl_case_13u.json       # Large valve-point case
+│   └── edl_case_40u.json       # Very large valve-point case
 │
 ├── tests/
 │   └── ...                     # Unit tests
 │
 ├── docs/
-│   └── design.md               # Short design document
+│   ├── design.md               # Short design document
+│   ├── final_report.md         # Main written report
+│   └── edl_execution_protocol.md  # Recommended final EDL execution workflow
 │
 ├── results/                    # Raw experiment outputs
-├── reports/                    # Generated analysis summaries and plots
+├── reports/                    # Generated analysis summaries and EDL report figures
 └── logs/                       # Auto-generated logs and visual artefacts
 ```
 
@@ -250,6 +304,11 @@ Available VS Code profiles include:
 | Swarm animation with chosen values | `PSO: Make visualization (choose values)` |
 | Result analysis | `PSO: Analyze results (default)` |
 | Cleanup helper | `PSO: Clean outputs` |
+| EDL run, choose case and execute all valid variants with reports | `EDL: Custom Case (all valid variants)` |
+| EDL run, choose case and a specific variant with reports | `EDL: Custom Case (single variant)` |
+| Regenerate EDL report figures from saved results | `EDL: Regenerate Reports` |
+| EDL predefined delivery profiles | `EDL: 3U/6U/13U/40U Final Run` |
+| EDL quick validation profiles without report generation | `EDL: 3U/6U/13U/40U Validation (quick)` |
 
 The bundled `.vscode/settings.json` selects the project interpreter and exports
 `PYTHONPATH=${workspaceFolder}` so that running the scripts from the editor
@@ -278,6 +337,34 @@ behaves consistently with the terminal entry points.
 If you use VS Code, the table above has a one-to-one equivalent in `Run and Debug`.
 For example, `python -m scripts.run_grid_search --objective sphere --dims 2`
 matches `PSO: Run grid search (enter args)` with the same arguments entered in the prompt.
+
+### EDL workflow
+
+The EDL workflow is intentionally separate from the benchmark pipeline so that
+the original benchmark scripts remain unchanged.
+
+Main entry points:
+
+| Goal | Command |
+|---|---|
+| Run an EDL case with all valid variants | `python3 -m scripts.run_edl --case cases/edl_case_3u.json --seed 42` |
+| Run a subset of variants | `python3 -m scripts.run_edl --case cases/edl_case_6u.json --variant edl_3 edl_4 --seed 42` |
+| Regenerate EDL figures from saved results | `python3 -m scripts.analyze_edl --case edl_3u_demo --seed 42` |
+
+EDL outputs are split into two layers:
+
+- raw outputs in `results/edl/<case_name>/`
+- report figures in `reports/edl/<case_name>/seed_<seed>/`
+
+For each saved EDL execution, the workflow produces:
+
+- `comparison.csv` with the per-version summary
+- one compact convergence figure
+- one compact dispatch figure
+- one summary dashboard
+
+The full recommended workflow for the delivery cases is documented in
+`docs/edl_execution_protocol.md`.
 
 ### CLI arguments for `run_pso.py`
 
