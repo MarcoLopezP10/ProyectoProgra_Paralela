@@ -28,6 +28,7 @@ from objectives.economic_dispatch import (
 from options.bounds import ClampBounds
 from options.topology import GlobalBestTopology
 from parallel.evaluator import build_evaluator
+from baseline.pswarm import run_pyswarm_baseline
 from utils.edl_io import (
     EDLMethodResult,
     EDLRunSummary,
@@ -38,6 +39,7 @@ from utils.edl_io import (
 )
 from utils.io import ExecutionMetadata, TimingBreakdown, save_iteration_metrics_csv
 from utils.logger import setup_logger
+from utils.methods import PSO_METHOD_KEYS, STRATEGY_LABELS
 from utils.metadata import collect_execution_metadata
 
 EDL_VARIANTS: Dict[str, Dict[str, object]] = {
@@ -62,13 +64,6 @@ EDL_VARIANTS: Dict[str, Dict[str, object]] = {
         "use_losses": True,
     },
 }
-
-STRATEGY_LABELS = {
-    "v0": "V0 Sequential",
-    "v1": "V1 Threading",
-    "v2": "V2 Multiprocessing",
-}
-
 
 @dataclass
 class EDLRunConfig:
@@ -133,17 +128,19 @@ def _build_pso(
 
 def _build_method_result(
     method_key: str,
+    strategy: Optional[str] = None,
     best_position: Optional[np.ndarray] = None,
     best_fitness: Optional[float] = None,
     iterations: Optional[int] = None,
     components: Optional[dict[str, float]] = None,
     pso: Optional[PSO] = None,
+    total_s: Optional[float] = None,
     max_workers: Optional[int] = None,
     batch_size: Optional[int] = None,
     status: str = "ok",
     error: Optional[str] = None,
 ) -> EDLMethodResult:
-    timing = TimingBreakdown()
+    timing = TimingBreakdown(total_s=float(total_s or 0.0))
     auc = None
     convergence_iteration = None
     if pso is not None:
@@ -154,7 +151,7 @@ def _build_method_result(
     components = components or {}
     return EDLMethodResult(
         method_key=method_key,
-        strategy=STRATEGY_LABELS[method_key],
+        strategy=strategy or STRATEGY_LABELS.get(method_key, "PySwarm baseline"),
         status=status,
         best_fitness=None if best_fitness is None else float(best_fitness),
         fuel_cost=components.get("fuel_cost"),
@@ -292,7 +289,11 @@ def _group_dispatches(methods: List[EDLMethodResult]) -> List[dict]:
 
 
 def _print_table(summary: EDLRunSummary) -> None:
-    methods = [summary.v0, summary.v1, summary.v2]
+    methods = [
+        method
+        for method in (summary.v0, summary.v1, summary.v2, summary.v3, summary.baseline)
+        if method is not None
+    ]
     has_long_dispatch = any(len(method.best_position) > 6 for method in methods if method is not None)
 
     if has_long_dispatch:
@@ -391,7 +392,7 @@ def _print_table(summary: EDLRunSummary) -> None:
 
 def _summary_to_rows(summary: EDLRunSummary) -> List[dict]:
     rows = []
-    for method in (summary.v0, summary.v1, summary.v2):
+    for method in (summary.v0, summary.v1, summary.v2, summary.v3, summary.baseline):
         if method is None:
             continue
         rows.append(
@@ -494,6 +495,36 @@ def _run_strategy(
     )
 
 
+def _run_baseline(
+    objective: EconomicDispatchObjective,
+    case: EconomicDispatchCase,
+    cfg: EDLRunConfig,
+    seed: int,
+) -> EDLMethodResult:
+    best_position, best_fitness, time_s, iters = run_pyswarm_baseline(
+        objective_function=objective,
+        bounds=(case.lower_bounds, case.upper_bounds),
+        w=cfg.w,
+        c1=cfg.c1,
+        c2=cfg.c2,
+        n_particles=cfg.n_particles,
+        max_iters=cfg.max_iters,
+        seed=seed,
+    )
+    components = objective.components(best_position)
+    return _build_method_result(
+        method_key="baseline",
+        best_position=best_position,
+        best_fitness=best_fitness,
+        iterations=iters,
+        components=components,
+        pso=None,
+        total_s=time_s,
+        status="ok",
+        error=None,
+    )
+
+
 def run_one_edl_variant(
     case: EconomicDispatchCase,
     variant: str,
@@ -501,7 +532,7 @@ def run_one_edl_variant(
     seed: int,
     logger: Optional[logging.Logger] = None,
 ) -> EDLRunSummary:
-    """Run one EDL variant for one seed across V0/V1/V2."""
+    """Run one EDL variant for one seed across baseline + V0/V1/V2/V3."""
     if variant not in EDL_VARIANTS:
         raise ValueError(
             f"Unknown EDL variant {variant!r}. Expected one of {sorted(EDL_VARIANTS)}."
@@ -538,6 +569,17 @@ def run_one_edl_variant(
             max_workers=cfg.process_max_workers,
             batch_size=cfg.batch_size,
         )
+        unavailable_v3 = _build_method_result(
+            method_key="v3",
+            status="unavailable",
+            error=reason,
+        )
+        unavailable_baseline = _build_method_result(
+            method_key="baseline",
+            strategy="PySwarm baseline",
+            status="unavailable",
+            error=reason,
+        )
         summary = EDLRunSummary(
             case_name=case.case_name,
             variant=variant,
@@ -561,6 +603,8 @@ def run_one_edl_variant(
             v0=unavailable,
             v1=unavailable_v1,
             v2=unavailable_v2,
+            v3=unavailable_v3,
+            baseline=unavailable_baseline,
             winner="Unavailable",
             execution=execution_metadata,
             notes=reason,
@@ -593,7 +637,7 @@ def run_one_edl_variant(
     method_results: Dict[str, EDLMethodResult] = {}
     pso_runs: Dict[str, PSO] = {}
 
-    for method_key in ("v0", "v1", "v2"):
+    for method_key in PSO_METHOD_KEYS:
         method_result, pso = _run_strategy(
             method_key=method_key,
             objective=objective,
@@ -606,6 +650,7 @@ def run_one_edl_variant(
         method_results[method_key] = method_result
         if pso is not None:
             pso_runs[method_key] = pso
+    method_results["baseline"] = _run_baseline(objective, case, cfg, seed)
 
     winner = _resolve_winner(list(method_results.values()))
     summary = EDLRunSummary(
@@ -631,12 +676,16 @@ def run_one_edl_variant(
         v0=method_results["v0"],
         v1=method_results["v1"],
         v2=method_results["v2"],
+        v3=method_results["v3"],
+        baseline=method_results["baseline"],
         winner=winner,
         execution=execution_metadata,
         notes=(
             "EDL run added as an isolated objective family. "
             "V2 is marked unavailable instead of aborting the whole run "
-            "when multiprocessing is blocked by the environment."
+            "when multiprocessing is blocked by the environment. "
+            "V3 stays as an additional evaluator option even though EDL itself "
+            "is still a synchronous objective."
         ),
     )
 

@@ -1,8 +1,8 @@
 """experiment.grid_search
 
-Configurable grid search for PSO hyperparameters up to V2.
+Configurable grid search for PSO hyperparameters up to V3.
 
-The search can evaluate V0, V1, or V2 using a selectable optimisation metric:
+The search can evaluate V0, V1, V2, or V3 using a selectable optimisation metric:
 - final_fitness
 - auc
 - convergence_iter
@@ -76,12 +76,28 @@ def recommended_profile(objective_name: str, dim: int) -> Dict[str, Any]:
             "patience": 120 if dim <= 2 else 180 if dim <= 10 else 260,
             "vmax_ratio": 0.08,
         })
+    elif objective_name == "latency_mix":
+        profile.update({
+            "w": 0.55,
+            "c1": 1.3,
+            "c2": 1.7,
+            "n_particles": 20 if dim <= 2 else 24 if dim <= 10 else 28,
+            "max_iters": 60 if dim <= 2 else 75 if dim <= 10 else 90,
+            "patience": 20 if dim <= 2 else 28 if dim <= 10 else 36,
+            "vmax_ratio": 0.18,
+            "quick_seeds": [0, 7],
+        })
 
     if objective_name == "sphere":
         n_values = [50, 80] if dim <= 2 else [80, 120] if dim <= 10 else [120, 160]
         w_values = [0.4, 0.5, 0.6, 0.7]
         c1_values = [1.2, 1.5, 1.8]
         c2_values = [1.2, 1.5, 1.8]
+    elif objective_name == "latency_mix":
+        n_values = [16, 24] if dim <= 2 else [20, 28] if dim <= 10 else [24, 32]
+        w_values = [0.45, 0.55, 0.65]
+        c1_values = [1.1, 1.3, 1.5]
+        c2_values = [1.5, 1.7, 1.9]
     elif objective_name == "ackley":
         n_values = [60, 90] if dim <= 2 else [90, 120] if dim <= 10 else [120, 160]
         w_values = [0.4, 0.5, 0.6, 0.7]

@@ -15,6 +15,7 @@ Each experiment is saved under:
         history_v0.csv       — V0 iteration metrics
         history_v1.csv       — V1 iteration metrics
         history_v2.csv       — V2 iteration metrics
+        history_v3.csv       — V3 iteration metrics
 """
 
 from __future__ import annotations
@@ -57,7 +58,7 @@ class ExecutionMetadata:
 
 @dataclass
 class MethodResult:
-    """Results for one evaluation strategy (V0, V1, …)."""
+    """Results for one evaluation strategy (V0, V1, V2, V3, …)."""
     strategy: str = ""
     best_fitness: float = float("inf")
     iterations: int = 0
@@ -95,6 +96,7 @@ class ExperimentSummary:
     v0: MethodResult = field(default_factory=MethodResult)
     v1: Optional[MethodResult] = None
     v2: Optional[MethodResult] = None
+    v3: Optional[MethodResult] = None
     baseline: Optional[MethodResult] = None
 
     winner: str = ""

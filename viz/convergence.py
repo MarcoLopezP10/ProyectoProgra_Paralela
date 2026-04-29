@@ -1,6 +1,6 @@
 """viz.convergence
 
-Minimal visualization for V0/V1/V2:
+Minimal visualization for V0/V1/V2/V3:
 - Convergence curve (best fitness vs iteration)
 - Horizontal reference line for the baseline (PySwarm)
 
@@ -20,9 +20,10 @@ def save_convergence_plot(
     out_path: str,
     threaded_history: Optional[List[float]] = None,
     process_history: Optional[List[float]] = None,
+    asyncio_history: Optional[List[float]] = None,
     y_log_if_possible: bool = True
 ) -> None:
-    """Save a polished convergence plot for V0/V1/V2 comparisons."""
+    """Save a polished convergence plot for V0/V1/V2/V3 comparisons."""
     import matplotlib.pyplot as plt
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
@@ -60,6 +61,18 @@ def save_convergence_plot(
             label="V2: Multiprocessing",
             zorder=4,
         )
+    if asyncio_history:
+        ax.plot(
+            asyncio_history,
+            linewidth=2.3,
+            color="#e45756",
+            linestyle="-.",
+            marker="D",
+            markersize=3.2,
+            markevery=max(1, len(asyncio_history) // 12),
+            label="V3: Asyncio",
+            zorder=5,
+        )
     ax.axhline(
         y=baseline_final_fitness,
         linestyle="--",
@@ -82,6 +95,8 @@ def save_convergence_plot(
         positive_values.extend(threaded_history)
     if process_history:
         positive_values.extend(process_history)
+    if asyncio_history:
+        positive_values.extend(asyncio_history)
 
     if (
         y_log_if_possible

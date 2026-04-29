@@ -64,6 +64,8 @@ class EDLRunSummary:
     v0: EDLMethodResult = field(default_factory=EDLMethodResult)
     v1: Optional[EDLMethodResult] = None
     v2: Optional[EDLMethodResult] = None
+    v3: Optional[EDLMethodResult] = None
+    baseline: Optional[EDLMethodResult] = None
     winner: str = ""
     timestamp_utc: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()

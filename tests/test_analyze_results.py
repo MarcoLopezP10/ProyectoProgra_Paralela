@@ -33,6 +33,11 @@ def test_load_summaries_accepts_legacy_and_backfills_metrics(tmp_path):
             "iterations": 3,
             "timing": {"total_s": 1.5},
         },
+        "v3": {
+            "best_fitness": 0.01,
+            "iterations": 3,
+            "timing": {"total_s": 0.9},
+        },
         "baseline": {
             "best_fitness": 0.1,
             "iterations": 3,
@@ -40,7 +45,7 @@ def test_load_summaries_accepts_legacy_and_backfills_metrics(tmp_path):
         },
     }
     (legacy_dir / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
-    for method_key in ("v0", "v1", "v2"):
+    for method_key in ("v0", "v1", "v2", "v3"):
         (legacy_dir / f"history_{method_key}.csv").write_text(
             "iter,best_fitness\n0,1.0\n1,0.1\n2,0.01\n",
             encoding="utf-8",
@@ -54,6 +59,8 @@ def test_load_summaries_accepts_legacy_and_backfills_metrics(tmp_path):
     assert loaded["execution"] == {}
     assert loaded["v0"]["auc"] is not None
     assert loaded["v0"]["convergence_iteration"] is not None
+    assert loaded["v3"]["auc"] is not None
+    assert loaded["v3"]["convergence_iteration"] is not None
     assert loaded["baseline"]["auc"] is None
     assert loaded["baseline"]["convergence_iteration"] is None
     assert loaded["baseline"]["timing"]["eval_s"] == 0.0

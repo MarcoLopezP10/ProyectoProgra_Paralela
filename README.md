@@ -3,13 +3,14 @@
 
 A complete, maintainable Python implementation of Particle Swarm Optimization (PSO) following software engineering best practices, used as a testbed for comparing different parallel and concurrent evaluation strategies.
 
-Current delivery scope is complete up to `V2`:
+Current delivery scope is complete up to `V3`:
 
 - `V0`: sequential baseline
 - `V1`: threading with `ThreadPoolExecutor`
 - `V2`: multiprocessing with `ProcessPoolExecutor` and batching
+- `V3`: `asyncio.gather` for cooperative concurrency on latency-aware objectives
 
-`V3` and `V4` remain documented as future extensions only.
+`V4` remains documented as a future extension only.
 
 Project documents:
 
@@ -43,7 +44,7 @@ This project implements the canonical PSO algorithm for minimising continuous fu
 | V0 | Sequential | Baseline — one particle at a time |
 | V1 | Threading | `ThreadPoolExecutor` — concurrent evaluation |
 | V2 | Multiprocessing | `ProcessPoolExecutor` — true parallelism with batched evaluation |
-| V3 | Asyncio | Cooperative concurrency for I/O-bound evaluation *(coming)* |
+| V3 | Asyncio | Cooperative concurrency for latency-aware / I/O-bound evaluation |
 | V4 | NumPy vectorised | Implicit parallelism via matrix operations *(coming)* |
 
 The core PSO algorithm never changes between versions. Only the fitness evaluator is swapped, which is possible because of the `FitnessEvaluator` abstraction.
@@ -61,7 +62,7 @@ In EDL, PSO searches for the best generation vector
 - optional transmission losses
 - optional valve-point effects
 
-The same `V0`, `V1`, and `V2` PSO implementations are reused without changing
+The same `V0`, `V1`, `V2`, and `V3` PSO implementations are reused without changing
 the optimisation loop. Only the objective function and the evaluator strategy
 change, which makes the EDL workflow a clean case study for comparing
 sequential, concurrent and parallel fitness evaluation on a realistic problem.
@@ -106,18 +107,19 @@ PRACTICA-2.2/
 │   └── topology.py             # Topology (ABC) + GlobalBestTopology
 │
 ├── parallel/                   # Parallel/concurrent evaluators
-│   └── evaluator.py            # ThreadPoolEvaluator (V1) + ProcessPoolEvaluator (V2)
+│   └── evaluator.py            # V1 threading + V2 multiprocessing + V3 asyncio
 │
 ├── objectives/                 # Benchmark functions
 │   ├── sphere.py               # Sphere — unimodal, convex
 │   ├── ackley.py               # Ackley — multimodal, origin trap
+│   ├── latency_mix.py          # Asymmetric-latency objective for V3
 │   ├── rosenbrock.py           # Rosenbrock — narrow curved valley
 │   ├── rastrigin.py            # Rastrigin — highly multimodal
 │   └── economic_dispatch.py    # EDL objective family (base / losses / valve-point)
 │
 ├── experiment/                 # Experiment orchestration
 │   ├── grid_search.py          # Multi-seed grid search
-│   ├── run_single.py           # Single experiment runner (V0 + V1 + V2 + baseline)
+│   ├── run_single.py           # Single experiment runner (baseline + V0..V3)
 │   └── run_edl.py              # EDL runner across variants and PSO versions
 │
 ├── baseline/                   # External reference
@@ -240,7 +242,7 @@ version-to-version comparisons fair:
   even though this project currently uses only the global-best variant.
 
 This separation is important for software engineering quality, but also for
-experimental validity: if V0, V1, and V2 use the same seed, same swarm size, same
+experimental validity: if V0, V1, V2, and V3 use the same seed, same swarm size, same
 coefficients, same bounds and same topology, then any observed difference can
 be attributed to the evaluation strategy rather than to hidden algorithmic
 changes.
@@ -320,6 +322,7 @@ behaves consistently with the terminal entry points.
 |---|---|
 | Single run, all functions, d=2 | `python -m scripts.run_pso` |
 | Single function | `python -m scripts.run_pso --objective sphere` |
+| Async-latency demo for V3 | `python -m scripts.run_pso --objective latency_mix --dim 2 --seed 42 --n-particles 24 --max-iters 40` |
 | Multiple dimensions and seeds | `python -m scripts.run_pso --dim 2 10 30 --seed 42 7` |
 | With hyperparameter grid search | `python -m scripts.run_pso --dim 2 --grid-search` |
 | Dry run (no files saved) | `python -m scripts.run_pso --no-save` |
@@ -370,7 +373,7 @@ The full recommended workflow for the delivery cases is documented in
 
 | Argument | Default | Description |
 |---|---|---|
-| `--objective` | all 4 | Function(s): `sphere` `ackley` `rosenbrock` `rastrigin` |
+| `--objective` | all 5 | Function(s): `sphere` `ackley` `rosenbrock` `rastrigin` `latency_mix` |
 | `--dim` | `2` | Dimension(s), e.g. `--dim 2 10 30` |
 | `--seed` | `42` | Seed(s), e.g. `--seed 42 7 123` |
 | `--bounds-lo` | `-5.0` | Lower bound (all dimensions) |
@@ -398,7 +401,7 @@ defaults automatically based on the objective function and dimension.
 
 | Argument | Default | Description |
 |---|---|---|
-| `--objective` | all 4 | Function(s) to benchmark |
+| `--objective` | all 5 | Function(s) to benchmark |
 | `--dims` | `2 10 30` | Dimensions to evaluate |
 | `--seeds` | `42 7` | Seeds to test |
 | `--bounds-lo` | `-5.0` | Lower bound |
@@ -420,7 +423,7 @@ defaults automatically based on the objective function and dimension.
 
 | Argument | Default | Description |
 |---|---|---|
-| `--objective` | all 4 | Function(s) to optimise during search |
+| `--objective` | all 5 | Function(s) to optimise during search |
 | `--dims` | `2 10 30` | Dimensions to search |
 | `--seeds` | `0 1 7 42 123` | Seeds averaged per combination |
 | `--strategy` | `v0` | Strategy used inside the grid search |
@@ -483,7 +486,7 @@ This script loads `summary.json` and the per-iteration CSV files saved under
 By default the generated analysis is written to `reports/analysis/`, so `results/`
 stays focused on raw experiment outputs.
 
-### Recommended way to compare V0, V1, and V2
+### Recommended way to compare baseline, V0, V1, V2, and V3
 
 For a fair comparison between versions:
 
@@ -492,7 +495,7 @@ For a fair comparison between versions:
 3. Compare both solution quality (`best_fitness`) and runtime (`time_s`).
 4. Use multiple seeds when drawing conclusions about performance.
 
-This project is explicitly designed so that V0, V1, and V2 share the same PSO
+This project is explicitly designed so that V0, V1, V2, and V3 share the same PSO
 logic and differ only in the fitness evaluation strategy.
 
 ---
@@ -553,6 +556,26 @@ evaluation, while explicitly measuring whether that extra machinery pays off.
 - Very cheap objective functions such as small benchmark kernels
 - Small swarms or very short runs
 - Cases where the sequential particle-update step remains the dominant cost
+
+### V3 — Asyncio (`asyncio.gather`)
+
+V3 preserves the same PSO dynamics as the other in-house methods and only
+changes how fitness values are evaluated. It is aimed at latency-aware
+objectives where each particle may spend time waiting instead of computing
+continuously.
+
+The repository includes `latency_mix` specifically for that purpose:
+
+- each particle has deterministic but asymmetric latency
+- `V0`, `V1`, and `V2` experience that latency through blocking waits
+- `V3` overlaps those waits cooperatively through `asyncio.gather`
+
+This makes V3 a targeted strategy for:
+
+- local service calls
+- file/database waits
+- simulated response-time studies
+- mixed compute + I/O objective pipelines
 
 ---
 
@@ -640,10 +663,6 @@ This is confirmed by the timing breakdown: in V0, evaluation takes ~14–40% of 
 - I/O-bound evaluation (API calls, file reads, database queries) — the GIL is released during I/O, so threads can genuinely overlap
 - Very expensive per-particle computation that releases the GIL (large NumPy operations on big arrays)
 
-### V3 — Asyncio *(coming)*
-
-Cooperative concurrency. Only makes sense when evaluation is I/O-bound — for example, each particle queries a local service with variable latency. Uses `asyncio.gather()` to overlap waiting times.
-
 ### V4 — NumPy vectorised *(coming)*
 
 Eliminates all Python loops. Positions, velocities, and fitness evaluation operate on full matrices `(n_particles × dim)`. Expected to be the fastest version for pure mathematical objectives.
@@ -683,14 +702,14 @@ Default hyperparameters: `w=0.7, c1=1.5, c2=1.5, n_particles=80, max_iters=500, 
 | Rastrigin | 10 | 5.97e+00 | 5.97e+00 | 3.98e+00 | PySwarm |
 | Rastrigin | 30 | 8.46e+01 | 8.46e+01 | 8.07e+01 | PySwarm |
 
-**Key observation:** V0, V1, and V2 reach exactly the same fitness whenever the
+**Key observation:** V0, V1, V2, and V3 reach exactly the same fitness whenever the
 same seed and hyperparameters are used. The evaluation strategy does not affect
 solution quality — only execution time. This confirms the abstraction works
 correctly: swapping the evaluator changes nothing algorithmically.
 
 PySwarm wins on multimodal functions at high dimension (Ackley d=30, Rastrigin d=10/30, Rosenbrock d=30) because our PSO uses fixed hyperparameters not tuned for those cases. With grid search the gap closes significantly.
 
-### Timing comparison (V0 vs V1 baseline study)
+### Timing comparison on CPU-bound functions (V0 vs V1 baseline study)
 
 | Function | d | V0 time (s) | V1 time (s) | V1 speedup | V0 % eval | V1 % eval |
 |---|---|---|---|---|---|---|
@@ -773,6 +792,56 @@ even when it is not enough to beat the sequential baseline.
 
 Grid search: `w ∈ {0.4,0.6,0.8}`, `c1 ∈ {1.2,1.5,1.8}`, `c2 ∈ {1.2,1.5,1.8}`, 5 seeds per combination.
 
+### V3 validation on `latency_mix`
+
+`latency_mix` was added as a purpose-built asynchronous evaluation case. It
+keeps the mathematical fitness identical across methods while introducing
+asymmetric per-particle waits so cooperative concurrency can be measured
+meaningfully.
+
+Representative terminal runs on `d=2`, `n_particles=24`, `max_iters=40`:
+
+| Seed | V0 fit | V1 fit | V2 fit | V3 fit | V0 time (s) | V1 time (s) | V2 time (s) | V3 time (s) |
+|---|---|---|---|---|---:|---:|---:|---:|
+| `42` | 2.389266e-01 | 2.389266e-01 | 2.389266e-01 | 2.389266e-01 | 3.1231 | 0.5278 | 1.6253 | 0.2650 |
+| `7` | 2.389266e-01 | 2.389266e-01 | 2.389266e-01 | 2.389266e-01 | 2.7859 | 0.5099 | 1.6265 | 0.2000 |
+| `123` | 2.389266e-01 | 2.389266e-01 | 2.389266e-01 | 2.389266e-01 | 2.8181 | 0.5145 | 1.8809 | 0.2853 |
+
+Main observations:
+
+- `V0`, `V1`, `V2`, and `V3` reach exactly the same final fitness for all three seeds.
+- `V3` is the fastest in all three runs, with speedups between `9.878x` and `13.926x` versus `V0`.
+- `V1` also improves substantially because blocking waits release the GIL and can overlap in threads.
+- `V2` improves less because process startup and IPC overhead are still significant for this workload.
+
+This is the key experimental result that justifies V3: asyncio is useful when
+the objective spends time waiting cooperatively, not as a universal accelerator.
+
+### EDL validation after integrating baseline and V3
+
+The EDL workflow now reports `baseline`, `V0`, `V1`, `V2`, and `V3` in the same
+table and JSON summaries.
+
+Representative validated run:
+
+```bash
+python3 -m scripts.run_edl --case cases/edl_case_3u.json --variant edl_1 --seed 42 --n-particles 60 --max-iters 300
+```
+
+Observed result:
+
+- `V0`, `V1`, `V2`, and `V3` converged to the same dispatch:
+  `[391.2567, 315.3630, 143.3803]`
+- common fitness: `8197.236881`
+- common balance error: `4.658097e-06`
+- `PySwarm baseline` finished with a slightly worse fitness: `8204.952318`
+- in that run, `V3` was also the fastest in-house method
+
+This confirms two things:
+
+- the new evaluator integrates correctly into the applied EDL workflow
+- the shared PSO core remains behaviourally consistent across all internal methods
+
 ---
 
 ## 8. Design Decisions & Trade-offs
@@ -790,15 +859,15 @@ The most important engineering and experimental trade-offs of the project are:
 - Multiprocessing vs IPC overhead: V2 bypasses the GIL and enables true CPU
   parallelism, but process startup, pickling, and inter-process communication
   can offset the gains.
-- Simplicity vs feature coverage: this stage focuses on a solid V0/V1/V2
-  implementation instead of prematurely adding many incomplete variants.
+- Simplicity vs feature coverage: the repository now covers a full V0/V1/V2/V3
+  stack while still keeping V4 as future work.
 
 ### Current limitations
 
 This repository intentionally focuses on the first stage of the project. The
 main current limitations are:
 
-- V3 (`asyncio`) and V4 (vectorised NumPy) are still future work.
+- V4 (vectorised NumPy) is still future work.
 - The topology currently available is global-best only.
 - Configuration is currently handled through CLI arguments rather than external
   YAML/JSON configuration files.
@@ -855,9 +924,9 @@ The logger writes exclusively to `logs/pso_summary.log`. Console output is handl
 2026-03-18 10:34:08 - --SPHERE-- - V0 - INFO - iter=10 | best=1.23e-05 | t_eval=0.42ms
 ```
 
-The `method` field distinguishes at least `RUN`, `V0`, `V1`, and `V2`, which
-allows the same experiment to be traced separately for sequential, threaded,
-and multiprocessing evaluation.
+The `method` field distinguishes at least `RUN`, `V0`, `V1`, `V2`, and `V3`,
+which allows the same experiment to be traced separately for sequential,
+threaded, multiprocessing, and asyncio-based evaluation.
 
 ### Early stopping: tolerance + patience
 
@@ -870,7 +939,7 @@ Stop if the global best improves by less than `tol=1e-10` for `patience=30` cons
 Reproducibility is treated as a core requirement of the project:
 
 - Every run is parameterised by an explicit random seed.
-- V0, V1, and V2 are launched with the same configuration and same seed so
+- V0, V1, V2, and V3 are launched with the same configuration and same seed so
   their results are directly comparable.
 - Structured raw outputs are saved under `results/`, analysis artefacts under `reports/`, and visual/logging artefacts under `logs/`.
 - The unit tests explicitly check reproducibility by seed.
@@ -904,7 +973,7 @@ Every experiment is fully reproducible by seed.
 
 The seed is recorded in three places: `summary.json` under `"seed"`, the log file (`PSO start | seed=42 ...`), and the result directory name (`sphere_d2_s42/`).
 
-V0, V1, and V2 always use the same seed, so they start from identical swarm
+V0, V1, V2, and V3 always use the same seed, so they start from identical swarm
 states. In all experiments performed so far they reach exactly the same
 fitness, confirming that the evaluator swap is algorithmically transparent.
 
