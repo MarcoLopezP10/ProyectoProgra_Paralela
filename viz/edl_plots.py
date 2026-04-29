@@ -21,11 +21,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import FuncFormatter
+from utils.methods import SUMMARY_METHOD_SPECS
 
 METHOD_SPECS = [
-    ("v0", "V0 Sequential", "#4c78a8"),
-    ("v1", "V1 Threading", "#f58518"),
-    ("v2", "V2 Multiprocessing", "#54a24b"),
+    (spec.key, spec.label, spec.color, spec.has_history)
+    for spec in SUMMARY_METHOD_SPECS
 ]
 
 VARIANT_ORDER = {
@@ -46,6 +46,8 @@ METHOD_STYLES = {
     "v0": {"linestyle": "-", "marker": "o"},
     "v1": {"linestyle": "--", "marker": "s"},
     "v2": {"linestyle": ":", "marker": "^"},
+    "v3": {"linestyle": "-.", "marker": "D"},
+    "baseline": {"linestyle": "--", "marker": "x"},
 }
 
 
@@ -76,7 +78,7 @@ def _load_history(path: str) -> list[float]:
 
 def _available_methods(summary: dict[str, Any]) -> list[dict[str, Any]]:
     methods: list[dict[str, Any]] = []
-    for method_key, label, color in METHOD_SPECS:
+    for method_key, label, color, has_history in METHOD_SPECS:
         payload = summary.get(method_key)
         if not isinstance(payload, dict) or payload.get("status") != "ok":
             continue
@@ -85,6 +87,7 @@ def _available_methods(summary: dict[str, Any]) -> list[dict[str, Any]]:
                 "method_key": method_key,
                 "label": label,
                 "color": color,
+                "has_history": has_history,
                 "payload": payload,
             }
         )
@@ -180,6 +183,8 @@ def plot_case_convergence_overview(entries: list[dict[str, Any]], out_dir: str) 
         curves_found = False
         final_values: list[float] = []
         for method in methods:
+            if not method["has_history"]:
+                continue
             history = _load_history(_history_path(run_dir, method["method_key"]))
             if not history:
                 continue
@@ -230,6 +235,21 @@ def plot_case_convergence_overview(entries: list[dict[str, Any]], out_dir: str) 
             ax.text(0.5, 0.5, "No convergence history", ha="center", va="center", transform=ax.transAxes)
             ax.set_xticks([])
             ax.set_yticks([])
+
+        baseline = summary.get("baseline")
+        if isinstance(baseline, dict) and baseline.get("status") == "ok":
+            baseline_fitness = baseline.get("best_fitness")
+            if baseline_fitness is not None:
+                ax.axhline(
+                    float(baseline_fitness),
+                    linewidth=1.8,
+                    linestyle="--",
+                    color="#7f7f7f",
+                    alpha=0.9,
+                    label="PySwarm baseline",
+                )
+                if curves_found:
+                    ax.legend(fontsize=8)
 
     for ax in axes_flat[len(ordered) :]:
         ax.remove()

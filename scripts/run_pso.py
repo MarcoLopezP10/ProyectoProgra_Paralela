@@ -1,7 +1,7 @@
 """scripts.run_pso
 
 Entry point for a single reproducible PSO run
-(V0 + V1 + V2 + PySwarm baseline).
+(baseline + V0 + V1 + V2 + V3).
 
 Usage examples
 --------------
@@ -36,6 +36,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from experiment.run_single import RunConfig, run_one_objective
 from objectives.sphere import sphere
 from objectives.ackley import ackley
+from objectives.latency_mix import latency_mix
 from objectives.rosenbrock import rosenbrock
 from objectives.rastrigin import rastrigin
 
@@ -44,12 +45,13 @@ OBJECTIVES = {
     "ackley": ackley,
     "rosenbrock": rosenbrock,
     "rastrigin": rastrigin,
+    "latency_mix": latency_mix,
 }
 
 
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Run PSO (V0 sequential + V1 threading + V2 multiprocessing) on benchmark functions.",
+        description="Run PSO (baseline + V0 + V1 + V2 + V3 asyncio) on benchmark functions.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -105,7 +107,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     # Grid search
     p.add_argument("--grid-search", action="store_true",
                    help="Run a lightweight grid search before the main run.")
-    p.add_argument("--grid-strategy", choices=["v0", "v1", "v2"], default="v0",
+    p.add_argument("--grid-strategy", choices=["v0", "v1", "v2", "v3"], default="v0",
                    help="Strategy used during the optional grid search.")
     p.add_argument("--grid-metric", choices=["final_fitness", "auc", "convergence_iter", "time_s"],
                    default="final_fitness",

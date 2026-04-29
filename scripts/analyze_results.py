@@ -29,16 +29,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import numpy as np
 
+from utils.methods import PSO_METHOD_SPECS, SUMMARY_METHOD_SPECS
 
-CONVERGENCE_METHODS = [
-    ("v0", "V0 Sequential"),
-    ("v1", "V1 Threading"),
-    ("v2", "V2 Multiprocessing"),
-]
-
-SUMMARY_METHODS = CONVERGENCE_METHODS + [
-    ("baseline", "PySwarm baseline"),
-]
+CONVERGENCE_METHODS = [(spec.key, spec.label) for spec in PSO_METHOD_SPECS]
+SUMMARY_METHODS = [(spec.key, spec.label) for spec in SUMMARY_METHOD_SPECS]
+METHOD_COLORS = {spec.key: spec.color for spec in SUMMARY_METHOD_SPECS}
 
 TIMING_COMPONENTS = [
     ("eval_s", "Evaluation", "#4c78a8"),
@@ -370,7 +365,7 @@ def _plot_group(summary_group: List[Dict], results_dir: str, out_dir: str, objec
         if method_times:
             labels.append(label)
             values.append(baseline_mean / mean(method_times))
-            colors.append("#7f7f7f" if method_key == "baseline" else {"v1": "#ff7f0e", "v2": "#2ca02c"}[method_key])
+            colors.append(METHOD_COLORS[method_key])
     if values:
         ax.bar(labels, values, color=colors)
     ax.set_title(f"Mean wall-clock speedup vs V0 - {objective} d={dim}")
@@ -382,7 +377,7 @@ def _plot_group(summary_group: List[Dict], results_dir: str, out_dir: str, objec
     fig.savefig(os.path.join(out_dir, f"{objective}_d{dim}_speedup.png"), dpi=220)
     plt.close(fig)
 
-    # Timing breakdown for V0/V1/V2
+    # Timing breakdown for V0/V1/V2/V3
     fig, ax = plt.subplots(figsize=(7.6, 4.6))
     available_methods = [
         (method_key, label)

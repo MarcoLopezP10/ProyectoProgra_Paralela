@@ -23,6 +23,9 @@ python -m scripts.run_grid_search --seeds 0 1 7 42 123
 # Grid search for V2 using time as the target metric
 python -m scripts.run_grid_search --strategy v2 --metric time_s --process-workers 4 --batch-size 8
 
+# Grid search for V3 on the latency-aware objective
+python -m scripts.run_grid_search --objective latency_mix --strategy v3 --metric time_s
+
 # Quick test run
 python -m scripts.run_grid_search --dims 2 --seeds 42 7 --max-iters 100
 """
@@ -48,6 +51,7 @@ from experiment.grid_search import (
 )
 from objectives.sphere import sphere
 from objectives.ackley import ackley
+from objectives.latency_mix import latency_mix
 from objectives.rosenbrock import rosenbrock
 from objectives.rastrigin import rastrigin
 
@@ -56,6 +60,7 @@ OBJECTIVES = {
     "ackley":     ackley,
     "rosenbrock": rosenbrock,
     "rastrigin":  rastrigin,
+    "latency_mix": latency_mix,
 }
 
 DEFAULT_DIMS  = [2, 10, 30]
@@ -77,7 +82,7 @@ def parse_args(argv=None) -> argparse.Namespace:
                    metavar="D")
     p.add_argument("--seeds", nargs="+", type=int, default=DEFAULT_SEEDS,
                    metavar="S", help="Seeds to average over per combination.")
-    p.add_argument("--strategy", choices=["v0", "v1", "v2"], default="v0",
+    p.add_argument("--strategy", choices=["v0", "v1", "v2", "v3"], default="v0",
                    help="Execution strategy used during the grid search.")
     p.add_argument("--metric", choices=["final_fitness", "auc", "convergence_iter", "time_s"],
                    default="final_fitness",

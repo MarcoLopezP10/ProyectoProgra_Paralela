@@ -1,4 +1,4 @@
-# PSO V2 Design Document
+# PSO V3 Design Document
 
 ## 1. Purpose of the Project
 
@@ -6,11 +6,12 @@ This repository implements a complete and maintainable Particle Swarm Optimizati
 (PSO) codebase in Python and uses it as an experimental platform to compare
 different execution strategies under the same algorithmic conditions.
 
-The implemented delivery scope reaches `V2`:
+The implemented delivery scope reaches `V3`:
 
 - `V0`: sequential PSO
 - `V1`: threaded fitness evaluation with `ThreadPoolExecutor`
 - `V2`: process-based fitness evaluation with `ProcessPoolExecutor` and batching
+- `V3`: cooperative asynchronous fitness evaluation with `asyncio.gather`
 
 The project was designed with two goals in mind:
 
@@ -35,9 +36,8 @@ single clean-room implementation. It reflects several rounds of refinement:
 - keeping a single PSO core while adding new execution strategies
 - making the outputs easier to analyze and defend
 
-The final repository intentionally does **not** implement `V3` (`asyncio`) or
-`V4` (vectorized NumPy). They remain documented as future work so that the
-implemented submission stays coherent with the real scope.
+The final repository intentionally does **not** implement `V4` (vectorized
+NumPy). It remains documented as future work.
 
 ## 3. Design Principles
 
@@ -45,7 +45,7 @@ The project follows a small set of explicit engineering principles.
 
 ### 3.1 One PSO core, many evaluators
 
-The main principle is that `V0`, `V1`, and `V2` must share the same PSO loop.
+The main principle is that `V0`, `V1`, `V2`, and `V3` must share the same PSO loop.
 Only the way fitness values are computed is allowed to change.
 
 This avoids the common mistake of accidentally comparing several different PSO
@@ -95,7 +95,7 @@ The project is split by responsibility:
 - `core/`: PSO state and algorithm loop
 - `objectives/`: benchmark functions
 - `options/`: abstract interfaces and core strategy points
-- `parallel/`: V1 and V2 evaluators
+- `parallel/`: V1, V2, and V3 evaluators
 - `experiment/`: orchestration and grid search
 - `utils/`: logging, persistence, metadata
 - `viz/`: convergence plots and swarm animation
@@ -211,7 +211,7 @@ This is the most important architectural decision in the repository.
 Why it was chosen:
 
 - it keeps the mathematical core fixed
-- it makes comparisons across `V0/V1/V2` fair
+- it makes comparisons across `V0/V1/V2/V3` fair
 - it prevents strategy-specific logic from leaking into the main loop
 
 ### 6.2 `BoundsPolicy`
@@ -290,7 +290,7 @@ to the swarm and particles.
 Why this decision was important:
 
 - reproducibility by seed was a requirement
-- V0, V1, and V2 had to start from identical swarm states
+- V0, V1, V2, and V3 had to start from identical swarm states
 - tests rely on exact trajectory reproducibility
 
 The PySwarm baseline was also updated to honor the same seed through NumPy and
@@ -341,7 +341,7 @@ the convergence behavior brittle.
 
 The strongest requirement for the comparison was:
 
-`V0`, `V1`, and `V2` must behave identically as optimizers for the same seed and
+`V0`, `V1`, `V2`, and `V3` must behave identically as optimizers for the same seed and
 configuration.
 
 The final design enforces that by sharing:
@@ -357,7 +357,7 @@ The final design enforces that by sharing:
 Only the evaluator changes.
 
 This is why many of the benchmark tables show the same final fitness and the
-same convergence iteration for `V0`, `V1`, and `V2`. That is not a bug or a
+same convergence iteration for `V0`, `V1`, `V2`, and `V3`. That is not a bug or a
 coincidence. It is the intended consequence of the architecture.
 
 ## 11. Execution-Strategy Decisions
@@ -438,6 +438,24 @@ Trade-off:
 
 The final implementation uses automatic batch sizing by default, with optional
 manual override from the CLI.
+
+### 11.4 V3 — Asyncio
+
+`V3` evaluates particle fitness through `asyncio.gather`.
+
+Why it was added:
+
+- to cover cooperative concurrency explicitly instead of treating it as future work
+- to support latency-aware objectives where waiting dominates
+- to keep the same PSO loop while changing only the evaluator
+
+Important design detail:
+
+- if an objective exposes an `async_evaluate(position)` coroutine, `V3` uses it directly
+- otherwise `V3` wraps the synchronous objective so the strategy still remains usable
+
+This preserves compatibility with the existing benchmark functions while making
+`latency_mix` a meaningful demonstration case for asynchronous evaluation.
 
 ## 12. Hyperparameter Strategy
 
@@ -521,6 +539,7 @@ results/runs/<objective>_d<dim>_s<seed>/
     history_v0.csv
     history_v1.csv
     history_v2.csv
+    history_v3.csv
 ```
 
 ### Why this layout was chosen
@@ -573,6 +592,7 @@ Convergence plots compare:
 - `V0`
 - `V1`
 - `V2`
+- `V3`
 - a horizontal reference line for PySwarm final fitness
 
 Why the baseline is a horizontal line:
@@ -655,7 +675,7 @@ guarantees:
 Why this test profile was chosen:
 
 - it covers both algorithmic correctness and engineering contracts
-- it verifies the fairness claim behind `V0/V1/V2`
+- it verifies the fairness claim behind `V0/V1/V2/V3`
 - it catches regressions in persistence and reporting, not only in optimization
 
 ## 19. Known Limitations
@@ -664,9 +684,9 @@ The final design is strong for the required scope, but several limits remain.
 
 - `V1` is still constrained by the GIL for Python-heavy objectives
 - `V2` only helps when evaluation cost is large enough to amortize IPC overhead
+- `V3` only becomes experimentally meaningful when the objective has real or simulated cooperative latency
 - topology support is currently global-best only
 - no vectorized `V4` implementation is present yet
-- no `asyncio` `V3` path is implemented
 - only two seeds are used in the current benchmark examples, so some plots are
   informative but statistically light
 

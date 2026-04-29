@@ -21,6 +21,11 @@ It uses the same PSO implementations:
 - `V0` — sequential
 - `V1` — threading
 - `V2` — multiprocessing
+- `V3` — asyncio
+
+and also reports the external reference:
+
+- `baseline` — PySwarm
 
 and the same EDL variants:
 
@@ -99,7 +104,7 @@ Use it to show:
 
 - that the PSO converges
 - that the convergence pattern changes with valve-point and/or losses
-- that `V0`, `V1`, and `V2` stay behaviourally consistent
+- that `V0`, `V1`, `V2`, and `V3` stay behaviourally consistent
 
 ### `dispatch_overview.png`
 
@@ -192,6 +197,7 @@ The execution can be considered correct when:
 - exactly three report figures appear under `reports/edl/<case_name>/seed_<seed>/`
 - balance error is small in the saved summaries
 - the `13U` and `40U` cases only run `edl_1` and `edl_2`
+- the saved summaries include `baseline`, `v0`, `v1`, `v2`, and `v3`
 
 This protocol is the intended final workflow for validating and presenting the
 EDL case study.

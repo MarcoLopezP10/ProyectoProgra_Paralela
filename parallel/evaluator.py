@@ -5,6 +5,8 @@ Evaluator implementations that enable concurrency / parallelism.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import os
 import pickle
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -132,6 +134,50 @@ class ProcessPoolEvaluator(FitnessEvaluator):
         return fitness
 
 
+class AsyncioEvaluator(FitnessEvaluator):
+    """Compute fitness values with cooperative concurrency via asyncio.gather."""
+
+    def __init__(self, objective_fn: Callable[[NDArray], float]) -> None:
+        self.objective_fn = objective_fn
+
+    def _resolve_async_evaluator(self) -> Callable[[NDArray], object]:
+        async_evaluate = getattr(self.objective_fn, "async_evaluate", None)
+        if callable(async_evaluate):
+            return async_evaluate
+        if inspect.iscoroutinefunction(self.objective_fn):
+            return self.objective_fn
+
+        async def _sync_wrapper(position: NDArray) -> float:
+            return float(self.objective_fn(position))
+
+        return _sync_wrapper
+
+    async def _evaluate_async(self, positions: Sequence[NDArray]) -> List[float]:
+        async_evaluate = self._resolve_async_evaluator()
+        coroutines = [async_evaluate(position) for position in positions]
+        results = await asyncio.gather(*coroutines)
+        return [float(value) for value in results]
+
+    def evaluate(self, positions: Iterable[NDArray]) -> List[float]:
+        positions_list = list(positions)
+        if not positions_list:
+            return []
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            new_loop = asyncio.new_event_loop()
+            try:
+                return new_loop.run_until_complete(self._evaluate_async(positions_list))
+            finally:
+                new_loop.close()
+
+        return asyncio.run(self._evaluate_async(positions_list))
+
+
 def build_evaluator(
     strategy: str,
     objective_fn: Callable[[NDArray], float],
@@ -150,6 +196,8 @@ def build_evaluator(
             max_workers=max_workers,
             batch_size=batch_size,
         )
+    if strategy in {"v3", "async", "asyncio"}:
+        return AsyncioEvaluator(objective_fn)
     raise ValueError(f"Unknown evaluation strategy: {strategy}")
 
 
@@ -158,5 +206,6 @@ __all__ = [
     "SequentialEvaluator",
     "ThreadPoolEvaluator",
     "ProcessPoolEvaluator",
+    "AsyncioEvaluator",
     "build_evaluator",
 ]

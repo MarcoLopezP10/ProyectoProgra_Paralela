@@ -39,6 +39,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from experiment.run_single import RunConfig, run_one_objective
 from objectives.sphere import sphere
 from objectives.ackley import ackley
+from objectives.latency_mix import latency_mix
 from objectives.rosenbrock import rosenbrock
 from objectives.rastrigin import rastrigin
 
@@ -47,6 +48,7 @@ OBJECTIVES = {
     "ackley":     ackley,
     "rosenbrock": rosenbrock,
     "rastrigin":  rastrigin,
+    "latency_mix": latency_mix,
 }
 
 DEFAULT_DIMS  = [2, 10, 30]
@@ -59,7 +61,7 @@ DEFAULT_SEEDS = [42, 7]
 
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Run the full PSO benchmark suite (V0 + V1 + V2 + PySwarm baseline).",
+        description="Run the full PSO benchmark suite (baseline + V0 + V1 + V2 + V3).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--objective", nargs="+", choices=list(OBJECTIVES),
@@ -89,7 +91,7 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="Use grid search to pick hyperparameters (slower).")
     p.add_argument("--no-grid-search", dest="grid_search", action="store_false")
     p.set_defaults(grid_search=False)
-    p.add_argument("--grid-strategy", choices=["v0", "v1", "v2"], default="v0",
+    p.add_argument("--grid-strategy", choices=["v0", "v1", "v2", "v3"], default="v0",
                    help="Strategy used during the optional grid search.")
     p.add_argument("--grid-metric", choices=["final_fitness", "auc", "convergence_iter", "time_s"],
                    default="final_fitness",
@@ -120,6 +122,10 @@ CSV_FIELDS = [
     "v2_auc", "v2_convergence_iter",
     "v2_pct_eval", "v2_pct_update",
     "v2_speedup",
+    "v3_fitness", "v3_iters", "v3_time_s",
+    "v3_auc", "v3_convergence_iter",
+    "v3_pct_eval", "v3_pct_update",
+    "v3_speedup",
     "process_workers", "batch_size",
     "selected_grid_metric",
     "baseline_fitness", "baseline_time_s",
@@ -135,6 +141,8 @@ def _result_to_row(result: dict) -> dict:
     v1_speedup = v0["time_s"] / v1["time_s"] if v1["time_s"] > 0 else float("inf")
     v2 = result["v2"]
     v2_speedup = v0["time_s"] / v2["time_s"] if v2["time_s"] > 0 else float("inf")
+    v3 = result["v3"]
+    v3_speedup = v0["time_s"] / v3["time_s"] if v3["time_s"] > 0 else float("inf")
     return {
         "objective":    result["objective"],
         "dim":          result["dim"],
@@ -166,6 +174,14 @@ def _result_to_row(result: dict) -> dict:
         "v2_pct_eval":  round(v2["timing"]["pct_eval"], 2),
         "v2_pct_update":round(v2["timing"]["pct_update"], 2),
         "v2_speedup":   round(v2_speedup, 4),
+        "v3_fitness":   v3["best_fit"],
+        "v3_iters":     v3["iters"],
+        "v3_time_s":    round(v3["time_s"], 5),
+        "v3_auc":       round(v3["auc"], 6),
+        "v3_convergence_iter": v3["convergence_iter"],
+        "v3_pct_eval":  round(v3["timing"]["pct_eval"], 2),
+        "v3_pct_update":round(v3["timing"]["pct_update"], 2),
+        "v3_speedup":   round(v3_speedup, 4),
         "process_workers": v2["max_workers"],
         "batch_size":   v2["batch_size"],
         "selected_grid_metric": result.get("selected_grid_metric"),

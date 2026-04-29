@@ -25,7 +25,8 @@ from core.pso import PSO
 from options.bounds import ClampBounds
 from options.evaluator import SequentialEvaluator
 from options.topology import GlobalBestTopology
-from parallel.evaluator import ProcessPoolEvaluator
+from parallel.evaluator import AsyncioEvaluator, ProcessPoolEvaluator
+from objectives.latency_mix import latency_mix
 from objectives.sphere import sphere
 from objectives.ackley import ackley
 from objectives.rosenbrock import rosenbrock
@@ -181,6 +182,56 @@ class TestMultiprocessingEvaluator:
 
         with pytest.raises(TypeError, match="picklable top-level objective function"):
             process_eval.open()
+
+
+class TestAsyncioEvaluator:
+    """V3 must preserve the same mathematical result while enabling async objectives."""
+
+    def test_asyncio_evaluator_matches_sequential_fitness_list_for_sync_objective(self):
+        positions = [
+            np.array([1.0, 1.0]),
+            np.array([2.0, 0.0]),
+            np.array([0.0, 3.0]),
+            np.array([1.0, 2.0]),
+        ]
+
+        sequential = SequentialEvaluator(sphere).evaluate(positions)
+        async_eval = AsyncioEvaluator(sphere)
+        parallel = async_eval.evaluate(positions)
+
+        assert parallel == sequential
+
+    def test_asyncio_evaluator_matches_sequential_fitness_list_for_latency_objective(self):
+        positions = [
+            np.array([0.5, 0.5]),
+            np.array([1.5, -0.5]),
+            np.array([-1.0, 2.0]),
+        ]
+
+        sequential = SequentialEvaluator(latency_mix).evaluate(positions)
+        async_eval = AsyncioEvaluator(latency_mix)
+        parallel = async_eval.evaluate(positions)
+
+        assert parallel == pytest.approx(sequential)
+
+    def test_asyncio_pso_matches_sequential_for_same_seed(self):
+        pso_v0 = _make_pso(sphere, dim=4, n_particles=12, max_iters=60, seed=21)
+        pso_v3 = _make_pso(
+            sphere,
+            dim=4,
+            n_particles=12,
+            max_iters=60,
+            seed=21,
+            evaluator=AsyncioEvaluator(sphere),
+        )
+
+        pos_v0, fit_v0, _, iters_v0 = pso_v0.run()
+        pos_v3, fit_v3, _, iters_v3 = pso_v3.run()
+
+        assert fit_v3 == pytest.approx(fit_v0)
+        assert iters_v3 == iters_v0
+        np.testing.assert_allclose(pos_v3, pos_v0)
+        assert pso_v3.history == pytest.approx(pso_v0.history)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

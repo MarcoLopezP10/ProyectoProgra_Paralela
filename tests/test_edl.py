@@ -191,13 +191,14 @@ def test_group_dispatches_merges_identical_solutions() -> None:
         EDLMethodResult(strategy="V0 Sequential", best_position=[10.0, 20.0]),
         EDLMethodResult(strategy="V1 Threading", best_position=[10.0, 20.0]),
         EDLMethodResult(strategy="V2 Multiprocessing", best_position=[11.0, 19.0]),
+        EDLMethodResult(strategy="V3 Asyncio", best_position=[11.0, 19.0]),
     ]
 
     groups = _group_dispatches(methods)
 
     assert len(groups) == 2
     assert groups[0]["strategies"] == ["V0 Sequential", "V1 Threading"]
-    assert groups[1]["strategies"] == ["V2 Multiprocessing"]
+    assert groups[1]["strategies"] == ["V2 Multiprocessing", "V3 Asyncio"]
 
 
 def test_objective_is_picklable_for_process_evaluator() -> None:
@@ -235,6 +236,9 @@ def test_runner_marks_v2_unavailable_when_process_pool_is_blocked(monkeypatch, t
     assert summary.v0.status == "ok"
     assert summary.v1.status == "ok"
     assert summary.v2.status == "unavailable"
+    assert summary.v3.status == "ok"
+    assert summary.baseline is not None
+    assert summary.baseline.status == "ok"
     assert summary.v2.error is not None
 
 
@@ -255,6 +259,9 @@ def test_runner_marks_loss_variants_unavailable_when_case_has_no_loss_model(tmp_
     assert summary.v0.status == "unavailable"
     assert summary.v1.status == "unavailable"
     assert summary.v2.status == "unavailable"
+    assert summary.v3.status == "unavailable"
+    assert summary.baseline is not None
+    assert summary.baseline.status == "unavailable"
     assert summary.winner == "Unavailable"
 
 

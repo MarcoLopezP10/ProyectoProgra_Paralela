@@ -3,7 +3,7 @@
 This directory contains the datasets used by the **Economic Load Dispatch
 (EDL)** workflow added to the PSO project.
 
-The purpose of the EDL workflow is to test the same `V0`, `V1`, and `V2` PSO
+The purpose of the EDL workflow is to test the same `V0`, `V1`, `V2`, and `V3` PSO
 implementations on a realistic constrained optimisation problem instead of only
 on synthetic benchmark functions.
 
@@ -247,6 +247,7 @@ Each EDL run saves:
 - `results/edl/<case_name>/<variant>_s<seed>/history_v0.csv`
 - `results/edl/<case_name>/<variant>_s<seed>/history_v1.csv`
 - `results/edl/<case_name>/<variant>_s<seed>/history_v2.csv` when available
+- `results/edl/<case_name>/<variant>_s<seed>/history_v3.csv` when available
 
 The compact report figures are generated in:
 

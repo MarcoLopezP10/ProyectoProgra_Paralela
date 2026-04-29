@@ -2,8 +2,7 @@
 
 Orchestrates a single PSO experiment:
   1. Optional grid search for hyperparameters.
-  2. Run V0 (sequential), V1 (threading), and V2 (multiprocessing)
-     with the same config and seed.
+  2. Run V0, V1, V2 and V3 with the same config and seed.
   3. Run PySwarm baseline for reference.
   4. Save structured results (JSON + CSV) and convergence plot.
   5. Structured logging with per-iteration timing breakdown.
@@ -32,6 +31,7 @@ from experiment.grid_search import recommended_profile, simple_grid_search
 from baseline.pswarm import run_pyswarm_baseline
 from utils.logger import setup_logger
 from utils.metadata import collect_execution_metadata
+from utils.methods import PSO_METHOD_SPECS, STRATEGY_LABELS
 from utils.io import (
     ExecutionMetadata,
     ExperimentSummary,
@@ -189,25 +189,32 @@ def _build_method_result(
     )
 
 
+def _method_runtime_config(
+    method_key: str,
+    cfg: RunConfig,
+) -> tuple[Optional[int], Optional[int]]:
+    """Return per-method runtime knobs while keeping the PSO loop generic."""
+    if method_key == "v1":
+        return cfg.thread_max_workers, None
+    if method_key == "v2":
+        return cfg.process_max_workers, cfg.batch_size
+    return None, None
+
+
 def _print_table(
-    name: str, dim: int, seed: int,
-    w: float, c1: float, c2: float, n_particles: int,
-    v0_fit: float, v0_iters: int, v0_time: float,
-    v0_pct_eval: float, v0_pct_update: float, v0_conv_iter: int,
-    v1_fit: float, v1_iters: int, v1_time: float,
-    v1_pct_eval: float, v1_pct_update: float, v1_conv_iter: int,
-    v2_fit: float, v2_iters: int, v2_time: float,
-    v2_pct_eval: float, v2_pct_update: float, v2_conv_iter: int,
-    base_fit: float, base_iters: int, base_time: float,
+    name: str,
+    dim: int,
+    seed: int,
+    w: float,
+    c1: float,
+    c2: float,
+    n_particles: int,
+    method_rows: List[Dict[str, object]],
     winner: str,
     thread_max_workers: Optional[int],
     process_max_workers: Optional[int],
     batch_size: Optional[int],
 ) -> None:
-    v1_speedup = v0_time / v1_time if v1_time > 0 else float("inf")
-    v2_speedup = v0_time / v2_time if v2_time > 0 else float("inf")
-    baseline_speedup = v0_time / base_time if base_time > 0 else float("inf")
-
     hyper_rows = [
         ["objective", name],
         ["dim", dim],
@@ -221,20 +228,23 @@ def _print_table(
         ["batch_size", batch_size or "auto"],
     ]
     result_rows = [
-        ["V0 Sequential", f"{v0_fit:.6e}", v0_iters, v0_conv_iter, f"{v0_time:.4f}",
-         "1.000x", f"{v0_pct_eval:.1f}%", f"{v0_pct_update:.1f}%"],
-        ["V1 Threading", f"{v1_fit:.6e}", v1_iters, v1_conv_iter, f"{v1_time:.4f}",
-         f"{v1_speedup:.3f}x", f"{v1_pct_eval:.1f}%", f"{v1_pct_update:.1f}%"],
-        ["V2 Multiprocessing", f"{v2_fit:.6e}", v2_iters, v2_conv_iter, f"{v2_time:.4f}",
-         f"{v2_speedup:.3f}x", f"{v2_pct_eval:.1f}%", f"{v2_pct_update:.1f}%"],
-        ["PySwarm baseline", f"{base_fit:.6e}", base_iters, "-", f"{base_time:.4f}",
-         f"{baseline_speedup:.3f}x", "-", "-"],
+        [
+            str(row["label"]),
+            f"{float(row['best_fit']):.6e}",
+            int(row["iters"]),
+            row["conv_iter"],
+            f"{float(row['time_s']):.4f}",
+            str(row["speedup"]),
+            str(row["pct_eval"]),
+            str(row["pct_update"]),
+        ]
+        for row in method_rows
     ]
-    summary_rows = [
-        ["Winner", winner],
-        ["V1 speedup vs V0", f"{v1_speedup:.3f}x"],
-        ["V2 speedup vs V0", f"{v2_speedup:.3f}x"],
-    ]
+    summary_rows = [["Winner", winner]]
+    for row in method_rows:
+        if row["key"] == "v0":
+            continue
+        summary_rows.append([f"{row['label']} speedup vs V0", str(row["speedup"])])
 
     if PrettyTable is not None:
         t = PrettyTable(["Hyperparameter", "Value"])
@@ -273,9 +283,9 @@ def run_one_objective(
     cfg: RunConfig,
 ) -> Dict[str, object]:
     """
-    Run a full V0+V1+V2 experiment for a single objective function.
+    Run a full baseline+V0+V1+V2+V3 experiment for a single objective function.
 
-    The seed is passed through to every PSO instance so that V0, V1, and V2
+    The seed is passed through to every PSO instance so that V0, V1, V2, and V3
     start from exactly the same swarm state and results are comparable.
 
     Parameters
@@ -336,60 +346,48 @@ def run_one_objective(
         f"grid_strategy={cfg.grid_strategy} grid_metric={cfg.grid_metric}"
     )
 
-    # ── 2. V0 — Sequential ───────────────────────────────────────────
-    v0_log = logging.LoggerAdapter(logger, {"objective": tag, "method": "V0"})
-    v0_pso = _build_pso(
-        cfg,
-        bounds,
-        w,
-        c1,
-        c2,
-        n_particles,
-        build_evaluator("v0", objective),
-        v0_log,
-    )
-    v0_pos, v0_fit, v0_time, v0_iters = v0_pso.run()
-    v0_timing = v0_pso.timing_summary()
-    v0_history = list(v0_pso.history)
+    method_results: Dict[str, Dict[str, object]] = {}
+    pso_runs: Dict[str, PSO] = {}
+    histories: Dict[str, List[float]] = {}
 
-    # ── 3. V1 — Threading ────────────────────────────────────────────
-    v1_log = logging.LoggerAdapter(logger, {"objective": tag, "method": "V1"})
-    v1_pso = _build_pso(
-        cfg,
-        bounds,
-        w,
-        c1,
-        c2,
-        n_particles,
-        build_evaluator("v1", objective, max_workers=cfg.thread_max_workers),
-        v1_log,
-    )
-    v1_pos, v1_fit, v1_time, v1_iters = v1_pso.run()
-    v1_timing = v1_pso.timing_summary()
-    v1_history = list(v1_pso.history)
+    for spec in PSO_METHOD_SPECS:
+        max_workers, batch_size = _method_runtime_config(spec.key, cfg)
+        method_log = logging.LoggerAdapter(
+            logger,
+            {"objective": tag, "method": spec.key.upper()},
+        )
+        pso = _build_pso(
+            cfg,
+            bounds,
+            w,
+            c1,
+            c2,
+            n_particles,
+            build_evaluator(
+                spec.key,
+                objective,
+                max_workers=max_workers,
+                batch_size=batch_size,
+            ),
+            method_log,
+        )
+        best_pos, best_fit, time_s, iters = pso.run()
+        method_results[spec.key] = {
+            "label": spec.label,
+            "best_pos": best_pos,
+            "best_fit": float(best_fit),
+            "time_s": float(time_s),
+            "iters": int(iters),
+            "timing": pso.timing_summary(),
+            "max_workers": max_workers,
+            "batch_size": batch_size,
+            "auc": pso.area_under_curve(),
+            "convergence_iter": pso.convergence_iteration(),
+        }
+        pso_runs[spec.key] = pso
+        histories[spec.key] = list(pso.history)
 
-    # ── 4. V2 — Multiprocessing ───────────────────────────────────────
-    v2_log = logging.LoggerAdapter(logger, {"objective": tag, "method": "V2"})
-    v2_pso = _build_pso(
-        cfg,
-        bounds,
-        w,
-        c1,
-        c2,
-        n_particles,
-        build_evaluator(
-            "v2",
-            objective,
-            max_workers=cfg.process_max_workers,
-            batch_size=cfg.batch_size,
-        ),
-        v2_log,
-    )
-    v2_pos, v2_fit, v2_time, v2_iters = v2_pso.run()
-    v2_timing = v2_pso.timing_summary()
-    v2_history = list(v2_pso.history)
-
-    # ── 5. PySwarm baseline ───────────────────────────────────────────
+    # ── 3. PySwarm baseline ───────────────────────────────────────────
     _, base_fit, base_time, base_iters = run_pyswarm_baseline(
         objective_function=objective,
         bounds=bounds,
@@ -400,68 +398,103 @@ def run_one_objective(
     )
 
     # ── 6. Winner ─────────────────────────────────────────────────────
-    winner = _resolve_winner([
-        ("V0 Sequential", float(v0_fit), float(v0_time)),
-        ("V1 Threading", float(v1_fit), float(v1_time)),
-        ("V2 Multiprocessing", float(v2_fit), float(v2_time)),
-        ("PySwarm", float(base_fit), float(base_time)),
-    ])
+    winner_candidates = [
+        (
+            str(payload["label"]),
+            float(payload["best_fit"]),
+            float(payload["time_s"]),
+        )
+        for payload in method_results.values()
+    ]
+    winner_candidates.append(("PySwarm baseline", float(base_fit), float(base_time)))
+    winner = _resolve_winner(winner_candidates)
 
-    # ── 7. Log summary ────────────────────────────────────────────────
-    log.info(
-        f"event=summary method=V0 fit={v0_fit:.6e} iters={v0_iters} "
-        f"time_s={v0_time:.4f} eval_pct={v0_timing['pct_eval']:.1f} "
-        f"update_pct={v0_timing['pct_update']:.1f} auc={v0_pso.area_under_curve():.6e} "
-        f"conv_iter={v0_pso.convergence_iteration()}"
-    )
-    log.info(
-        f"event=summary method=V1 fit={v1_fit:.6e} iters={v1_iters} "
-        f"time_s={v1_time:.4f} eval_pct={v1_timing['pct_eval']:.1f} "
-        f"update_pct={v1_timing['pct_update']:.1f} auc={v1_pso.area_under_curve():.6e} "
-        f"conv_iter={v1_pso.convergence_iteration()} speedup_vs_v0={v0_time/v1_time:.3f}x"
-    )
-    log.info(
-        f"event=summary method=V2 fit={v2_fit:.6e} iters={v2_iters} "
-        f"time_s={v2_time:.4f} eval_pct={v2_timing['pct_eval']:.1f} "
-        f"update_pct={v2_timing['pct_update']:.1f} auc={v2_pso.area_under_curve():.6e} "
-        f"conv_iter={v2_pso.convergence_iteration()} speedup_vs_v0={v0_time/v2_time:.3f}x "
-        f"process_workers={cfg.process_max_workers or 'default'} "
-        f"batch_size={cfg.batch_size or 'auto'}"
-    )
+    # ── 5. Log summary ────────────────────────────────────────────────
+    v0_time = float(method_results["v0"]["time_s"])
+    for spec in PSO_METHOD_SPECS:
+        payload = method_results[spec.key]
+        timing = payload["timing"]
+        speedup = v0_time / float(payload["time_s"]) if float(payload["time_s"]) > 0 else float("inf")
+        extra = ""
+        if spec.key == "v2":
+            extra = (
+                f" speedup_vs_v0={speedup:.3f}x "
+                f"process_workers={cfg.process_max_workers or 'default'} "
+                f"batch_size={cfg.batch_size or 'auto'}"
+            )
+        elif spec.key != "v0":
+            extra = f" speedup_vs_v0={speedup:.3f}x"
+        log.info(
+            f"event=summary method={spec.key.upper()} fit={float(payload['best_fit']):.6e} "
+            f"iters={int(payload['iters'])} time_s={float(payload['time_s']):.4f} "
+            f"eval_pct={timing['pct_eval']:.1f} update_pct={timing['pct_update']:.1f} "
+            f"auc={float(payload['auc']):.6e} conv_iter={int(payload['convergence_iter'])}{extra}"
+        )
     log.info(
         f"event=summary method=PySwarm fit={base_fit:.6e} iters={base_iters} time_s={base_time:.4f}"
     )
     log.info(f"event=summary winner={winner}")
 
-    # ── 8. Console table ──────────────────────────────────────────────
+    # ── 6. Console table ──────────────────────────────────────────────
+    table_rows: List[Dict[str, object]] = []
+    for spec in PSO_METHOD_SPECS:
+        payload = method_results[spec.key]
+        speedup = v0_time / float(payload["time_s"]) if float(payload["time_s"]) > 0 else float("inf")
+        timing = payload["timing"]
+        table_rows.append(
+            {
+                "key": spec.key,
+                "label": spec.label,
+                "best_fit": payload["best_fit"],
+                "iters": payload["iters"],
+                "conv_iter": payload["convergence_iter"],
+                "time_s": payload["time_s"],
+                "speedup": f"{speedup:.3f}x",
+                "pct_eval": f"{timing['pct_eval']:.1f}%",
+                "pct_update": f"{timing['pct_update']:.1f}%",
+            }
+        )
+    baseline_speedup = v0_time / base_time if base_time > 0 else float("inf")
+    table_rows.append(
+        {
+            "key": "baseline",
+            "label": "PySwarm baseline",
+            "best_fit": float(base_fit),
+            "iters": int(base_iters),
+            "conv_iter": "-",
+            "time_s": float(base_time),
+            "speedup": f"{baseline_speedup:.3f}x",
+            "pct_eval": "-",
+            "pct_update": "-",
+        }
+    )
     _print_table(
-        name=name, dim=cfg.dim, seed=cfg.seed,
-        w=w, c1=c1, c2=c2, n_particles=n_particles,
-        v0_fit=float(v0_fit), v0_iters=v0_iters, v0_time=v0_time,
-        v0_pct_eval=v0_timing["pct_eval"], v0_pct_update=v0_timing["pct_update"],
-        v0_conv_iter=v0_pso.convergence_iteration(),
-        v1_fit=float(v1_fit), v1_iters=v1_iters, v1_time=v1_time,
-        v1_pct_eval=v1_timing["pct_eval"], v1_pct_update=v1_timing["pct_update"],
-        v1_conv_iter=v1_pso.convergence_iteration(),
-        v2_fit=float(v2_fit), v2_iters=v2_iters, v2_time=v2_time,
-        v2_pct_eval=v2_timing["pct_eval"], v2_pct_update=v2_timing["pct_update"],
-        v2_conv_iter=v2_pso.convergence_iteration(),
-        base_fit=float(base_fit), base_iters=base_iters, base_time=base_time,
-        winner=winner, thread_max_workers=cfg.thread_max_workers,
-        process_max_workers=cfg.process_max_workers, batch_size=cfg.batch_size,
+        name=name,
+        dim=cfg.dim,
+        seed=cfg.seed,
+        w=w,
+        c1=c1,
+        c2=c2,
+        n_particles=n_particles,
+        method_rows=table_rows,
+        winner=winner,
+        thread_max_workers=cfg.thread_max_workers,
+        process_max_workers=cfg.process_max_workers,
+        batch_size=cfg.batch_size,
     )
 
-    # ── 9. Save results ───────────────────────────────────────────────
+    # ── 7. Save results ───────────────────────────────────────────────
     if cfg.save_files:
         # Convergence plot
         plot_path = os.path.join(cfg.plots_dir, f"{name}_d{cfg.dim}_s{cfg.seed}_convergence.png")
         save_convergence_plot(
-            history=v0_history,
+            history=histories["v0"],
             baseline_final_fitness=float(base_fit),
             title=f"Convergence — {name} d={cfg.dim} seed={cfg.seed}",
             out_path=plot_path,
-            threaded_history=v1_history,
-            process_history=v2_history,
+            threaded_history=histories.get("v1"),
+            process_history=histories.get("v2"),
+            asyncio_history=histories.get("v3"),
         )
 
         # Structured results directory: results/runs/sphere_d2_s42/
@@ -480,21 +513,32 @@ def run_one_objective(
             max_iters=cfg.max_iters,
             tol=cfg.tol,
             patience=cfg.patience,
-            v0=_build_method_result("V0 Sequential", v0_pso, float(v0_fit), v0_iters),
+            v0=_build_method_result(
+                STRATEGY_LABELS["v0"],
+                pso_runs["v0"],
+                float(method_results["v0"]["best_fit"]),
+                int(method_results["v0"]["iters"]),
+            ),
             v1=_build_method_result(
-                "V1 Threading",
-                v1_pso,
-                float(v1_fit),
-                v1_iters,
+                STRATEGY_LABELS["v1"],
+                pso_runs["v1"],
+                float(method_results["v1"]["best_fit"]),
+                int(method_results["v1"]["iters"]),
                 max_workers=cfg.thread_max_workers,
             ),
             v2=_build_method_result(
-                "V2 Multiprocessing",
-                v2_pso,
-                float(v2_fit),
-                v2_iters,
+                STRATEGY_LABELS["v2"],
+                pso_runs["v2"],
+                float(method_results["v2"]["best_fit"]),
+                int(method_results["v2"]["iters"]),
                 max_workers=cfg.process_max_workers,
                 batch_size=cfg.batch_size,
+            ),
+            v3=_build_method_result(
+                STRATEGY_LABELS["v3"],
+                pso_runs["v3"],
+                float(method_results["v3"]["best_fit"]),
+                int(method_results["v3"]["iters"]),
             ),
             baseline=_build_method_result(
                 "PySwarm baseline",
@@ -510,18 +554,18 @@ def run_one_objective(
                 "V1 uses ThreadPoolExecutor and is mainly a concurrency baseline. "
                 "V2 uses ProcessPoolExecutor with batched particle evaluation to "
                 "reduce pickling and IPC overhead while preserving the same PSO "
-                "search behaviour as V0."
+                "search behaviour as V0. V3 uses asyncio.gather and is mainly "
+                "expected to help when the objective exposes cooperative latency."
             ),
         )
         summary_path = os.path.join(rdir, "summary.json")
-        history_v0_path = os.path.join(rdir, "history_v0.csv")
-        history_v1_path = os.path.join(rdir, "history_v1.csv")
-        history_v2_path = os.path.join(rdir, "history_v2.csv")
 
         save_summary_json(summary, summary_path)
-        save_iteration_metrics_csv(v0_pso.iteration_records, history_v0_path)
-        save_iteration_metrics_csv(v1_pso.iteration_records, history_v1_path)
-        save_iteration_metrics_csv(v2_pso.iteration_records, history_v2_path)
+        for method_key, pso in pso_runs.items():
+            save_iteration_metrics_csv(
+                pso.iteration_records,
+                os.path.join(rdir, f"history_{method_key}.csv"),
+            )
 
     else:
         plot_path = None
@@ -531,28 +575,20 @@ def run_one_objective(
         "dim": cfg.dim,
         "seed": cfg.seed,
         "hyperparams": {"w": w, "c1": c1, "c2": c2, "n_particles": n_particles},
-        "v0": {"best_pos": v0_pos, "best_fit": v0_fit,
-               "time_s": v0_time, "iters": v0_iters, "timing": v0_timing,
-               "auc": v0_pso.area_under_curve(),
-               "convergence_iter": v0_pso.convergence_iteration()},
-        "v1": {"best_pos": v1_pos, "best_fit": v1_fit,
-               "time_s": v1_time, "iters": v1_iters, "timing": v1_timing,
-               "max_workers": cfg.thread_max_workers,
-               "auc": v1_pso.area_under_curve(),
-               "convergence_iter": v1_pso.convergence_iteration()},
-        "v2": {"best_pos": v2_pos, "best_fit": v2_fit,
-               "time_s": v2_time, "iters": v2_iters, "timing": v2_timing,
-               "max_workers": cfg.process_max_workers, "batch_size": cfg.batch_size,
-               "auc": v2_pso.area_under_curve(),
-               "convergence_iter": v2_pso.convergence_iteration()},
+        "v0": method_results["v0"],
+        "v1": method_results["v1"],
+        "v2": method_results["v2"],
+        "v3": method_results["v3"],
         "baseline": {"best_fit": base_fit, "time_s": base_time, "iters": base_iters},
         "winner": winner,
         "selected_grid_metric": cfg.grid_metric if cfg.use_grid_search else None,
-        "history_v0": v0_history,
-        "history_v1": v1_history,
-        "history_v2": v2_history,
-        "iteration_records_v0": list(v0_pso.iteration_records),
-        "iteration_records_v1": list(v1_pso.iteration_records),
-        "iteration_records_v2": list(v2_pso.iteration_records),
+        "history_v0": histories["v0"],
+        "history_v1": histories["v1"],
+        "history_v2": histories["v2"],
+        "history_v3": histories["v3"],
+        "iteration_records_v0": list(pso_runs["v0"].iteration_records),
+        "iteration_records_v1": list(pso_runs["v1"].iteration_records),
+        "iteration_records_v2": list(pso_runs["v2"].iteration_records),
+        "iteration_records_v3": list(pso_runs["v3"].iteration_records),
         "plot_path": plot_path,
     }
