@@ -46,6 +46,8 @@ class Swarm:
         if np.any(lower >= upper):
             raise ValueError("each lower bound must be strictly less than the upper bound")
 
+        self.dim = dim
+        self.n_particles = n_particles
         self.particles: List[Particle] = [
             Particle(dim, bounds, rng, vmax_ratio=vmax_ratio)
             for _ in range(n_particles)
@@ -70,13 +72,29 @@ class Swarm:
             positions (List[NDArray]): Current positions of particles.
             fitness_values (List[float]): Fitness values corresponding to positions.
         """
+        if len(positions) != self.n_particles:
+            raise ValueError(
+                f"positions must contain exactly {self.n_particles} entries, "
+                f"got {len(positions)}."
+            )
+        if len(fitness_values) != self.n_particles:
+            raise ValueError(
+                f"fitness_values must contain exactly {self.n_particles} entries, "
+                f"got {len(fitness_values)}."
+            )
+
         for p, pos, fit in zip(self.particles, positions, fitness_values):
+            pos_array = np.asarray(pos, dtype=float)
+            if pos_array.shape != (self.dim,):
+                raise ValueError(
+                    f"each position must have shape ({self.dim},), got {pos_array.shape}."
+                )
             if fit < p.best_fitness:
                 p.best_fitness = fit
-                p.best_position = pos.copy()
+                p.best_position = pos_array.copy()
 
             # Swarm best is monotonic: once a better point is found, it becomes
             # the shared reference for the next velocity update step.
             if fit < self.global_best_fitness:
                 self.global_best_fitness = fit
-                self.global_best_position = pos.copy()
+                self.global_best_position = pos_array.copy()

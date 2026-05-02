@@ -39,6 +39,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from experiment.run_single import RunConfig, run_one_objective
 from objectives.sphere import sphere
 from objectives.ackley import ackley
+from objectives.latency_mix import latency_mix
 from objectives.rosenbrock import rosenbrock
 from objectives.rastrigin import rastrigin
 
@@ -47,6 +48,7 @@ OBJECTIVES = {
     "ackley":     ackley,
     "rosenbrock": rosenbrock,
     "rastrigin":  rastrigin,
+    "latency_mix": latency_mix,
 }
 
 DEFAULT_DIMS  = [2, 10, 30]
@@ -59,7 +61,7 @@ DEFAULT_SEEDS = [42, 7]
 
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Run the full PSO benchmark suite (V0 + V1 + V2 + PySwarm baseline).",
+        description="Run the full PSO benchmark suite (V0 + V1 + V2 + V3 + V4 + PySwarm baseline).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--objective", nargs="+", choices=list(OBJECTIVES),
@@ -89,7 +91,7 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="Use grid search to pick hyperparameters (slower).")
     p.add_argument("--no-grid-search", dest="grid_search", action="store_false")
     p.set_defaults(grid_search=False)
-    p.add_argument("--grid-strategy", choices=["v0", "v1", "v2"], default="v0",
+    p.add_argument("--grid-strategy", choices=["v0", "v1", "v2", "v3", "v4"], default="v0",
                    help="Strategy used during the optional grid search.")
     p.add_argument("--grid-metric", choices=["final_fitness", "auc", "convergence_iter", "time_s"],
                    default="final_fitness",
@@ -109,6 +111,7 @@ def parse_args(argv=None) -> argparse.Namespace:
 CSV_FIELDS = [
     "objective", "dim", "seed",
     "w", "c1", "c2", "n_particles",
+    "v0_status", "v1_status", "v2_status", "v3_status", "v4_status", "baseline_status",
     "v0_fitness", "v0_iters", "v0_time_s",
     "v0_auc", "v0_convergence_iter",
     "v0_pct_eval", "v0_pct_update",
@@ -120,11 +123,26 @@ CSV_FIELDS = [
     "v2_auc", "v2_convergence_iter",
     "v2_pct_eval", "v2_pct_update",
     "v2_speedup",
+    "v3_fitness", "v3_iters", "v3_time_s",
+    "v3_auc", "v3_convergence_iter",
+    "v3_pct_eval", "v3_pct_update",
+    "v3_speedup",
+    "v4_fitness", "v4_iters", "v4_time_s",
+    "v4_auc", "v4_convergence_iter",
+    "v4_pct_eval", "v4_pct_update",
+    "v4_speedup",
     "process_workers", "batch_size",
     "selected_grid_metric",
     "baseline_fitness", "baseline_time_s",
+    "v2_error", "v3_error", "v4_error", "baseline_error",
     "winner",
 ]
+
+
+def _round_or_blank(value, digits: int):
+    if value is None:
+        return ""
+    return round(value, digits)
 
 
 def _result_to_row(result: dict) -> dict:
@@ -134,7 +152,23 @@ def _result_to_row(result: dict) -> dict:
     hp = result["hyperparams"]
     v1_speedup = v0["time_s"] / v1["time_s"] if v1["time_s"] > 0 else float("inf")
     v2 = result["v2"]
-    v2_speedup = v0["time_s"] / v2["time_s"] if v2["time_s"] > 0 else float("inf")
+    v2_speedup = (
+        v0["time_s"] / v2["time_s"]
+        if v2["time_s"] is not None and v2["time_s"] > 0
+        else ""
+    )
+    v3 = result["v3"]
+    v3_speedup = (
+        v0["time_s"] / v3["time_s"]
+        if v3["time_s"] is not None and v3["time_s"] > 0
+        else ""
+    )
+    v4 = result["v4"]
+    v4_speedup = (
+        v0["time_s"] / v4["time_s"]
+        if v4["time_s"] is not None and v4["time_s"] > 0
+        else ""
+    )
     return {
         "objective":    result["objective"],
         "dim":          result["dim"],
@@ -143,34 +177,60 @@ def _result_to_row(result: dict) -> dict:
         "c1":           hp["c1"],
         "c2":           hp["c2"],
         "n_particles":  hp["n_particles"],
+        "v0_status":    v0.get("status", "ok"),
+        "v1_status":    v1.get("status", "ok"),
+        "v2_status":    v2.get("status", "ok"),
+        "v3_status":    v3.get("status", "ok"),
+        "v4_status":    v4.get("status", "ok"),
+        "baseline_status": bl.get("status", "ok"),
         "v0_fitness":   v0["best_fit"],
         "v0_iters":     v0["iters"],
         "v0_time_s":    round(v0["time_s"], 5),
-        "v0_auc":       round(v0["auc"], 6),
+        "v0_auc":       _round_or_blank(v0["auc"], 6),
         "v0_convergence_iter": v0["convergence_iter"],
         "v0_pct_eval":  round(v0["timing"]["pct_eval"], 2),
         "v0_pct_update":round(v0["timing"]["pct_update"], 2),
         "v1_fitness":   v1["best_fit"],
         "v1_iters":     v1["iters"],
         "v1_time_s":    round(v1["time_s"], 5),
-        "v1_auc":       round(v1["auc"], 6),
+        "v1_auc":       _round_or_blank(v1["auc"], 6),
         "v1_convergence_iter": v1["convergence_iter"],
         "v1_pct_eval":  round(v1["timing"]["pct_eval"], 2),
         "v1_pct_update":round(v1["timing"]["pct_update"], 2),
         "v1_speedup":   round(v1_speedup, 4),
         "v2_fitness":   v2["best_fit"],
         "v2_iters":     v2["iters"],
-        "v2_time_s":    round(v2["time_s"], 5),
-        "v2_auc":       round(v2["auc"], 6),
+        "v2_time_s":    _round_or_blank(v2["time_s"], 5),
+        "v2_auc":       _round_or_blank(v2["auc"], 6),
         "v2_convergence_iter": v2["convergence_iter"],
-        "v2_pct_eval":  round(v2["timing"]["pct_eval"], 2),
-        "v2_pct_update":round(v2["timing"]["pct_update"], 2),
-        "v2_speedup":   round(v2_speedup, 4),
+        "v2_pct_eval":  _round_or_blank(v2["timing"]["pct_eval"], 2),
+        "v2_pct_update":_round_or_blank(v2["timing"]["pct_update"], 2),
+        "v2_speedup":   _round_or_blank(v2_speedup, 4) if v2_speedup != "" else "",
+        "v3_fitness":   v3["best_fit"],
+        "v3_iters":     v3["iters"],
+        "v3_time_s":    _round_or_blank(v3["time_s"], 5),
+        "v3_auc":       _round_or_blank(v3["auc"], 6),
+        "v3_convergence_iter": v3["convergence_iter"],
+        "v3_pct_eval":  _round_or_blank(v3["timing"]["pct_eval"], 2),
+        "v3_pct_update":_round_or_blank(v3["timing"]["pct_update"], 2),
+        "v3_speedup":   _round_or_blank(v3_speedup, 4) if v3_speedup != "" else "",
+        "v4_fitness":   v4["best_fit"],
+        "v4_iters":     v4["iters"],
+        "v4_time_s":    _round_or_blank(v4["time_s"], 5),
+        "v4_auc":       _round_or_blank(v4["auc"], 6),
+        "v4_convergence_iter": v4["convergence_iter"],
+        "v4_pct_eval":  _round_or_blank(v4["timing"]["pct_eval"], 2),
+        "v4_pct_update":_round_or_blank(v4["timing"]["pct_update"], 2),
+        "v4_speedup":   _round_or_blank(v4_speedup, 4) if v4_speedup != "" else "",
         "process_workers": v2["max_workers"],
         "batch_size":   v2["batch_size"],
         "selected_grid_metric": result.get("selected_grid_metric"),
         "baseline_fitness": bl["best_fit"],
-        "baseline_time_s":  round(bl["time_s"], 5),
+        "baseline_time_s":  _round_or_blank(bl["time_s"], 5),
+        "v2_error":     v2.get("error"),
+        "v3_error":     v3.get("error"),
+        "v4_error":     v4.get("error"),
+        "baseline_error": bl.get("error"),
         "winner":       result["winner"],
     }
 

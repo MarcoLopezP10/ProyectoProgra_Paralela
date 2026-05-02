@@ -188,7 +188,7 @@ def _resolve_winner(methods: List[EDLMethodResult]) -> str:
     candidates = [
         method
         for method in available
-        if np.isclose(float(method.best_fitness), best_fitness, atol=1e-15)
+        if np.isclose(float(method.best_fitness), best_fitness, atol=1e-15, rtol=0.0)
     ]
     if len(candidates) == 1:
         return candidates[0].strategy
@@ -197,7 +197,7 @@ def _resolve_winner(methods: List[EDLMethodResult]) -> str:
     fastest = [
         method
         for method in candidates
-        if np.isclose(float(method.timing.total_s), best_time, atol=1e-12)
+        if np.isclose(float(method.timing.total_s), best_time, atol=1e-12, rtol=0.0)
     ]
     return fastest[0].strategy if len(fastest) == 1 else "Tie"
 

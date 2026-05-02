@@ -1,6 +1,6 @@
 """viz.convergence
 
-Minimal visualization for V0/V1/V2:
+Minimal visualization for V0/V1/V2/V3/V4:
 - Convergence curve (best fitness vs iteration)
 - Horizontal reference line for the baseline (PySwarm)
 
@@ -15,14 +15,16 @@ from typing import List, Optional
 
 def save_convergence_plot(
     history: List[float],
-    baseline_final_fitness: float,
+    baseline_final_fitness: Optional[float],
     title: str,
     out_path: str,
     threaded_history: Optional[List[float]] = None,
     process_history: Optional[List[float]] = None,
+    asyncio_history: Optional[List[float]] = None,
+    vectorized_history: Optional[List[float]] = None,
     y_log_if_possible: bool = True
 ) -> None:
-    """Save a polished convergence plot for V0/V1/V2 comparisons."""
+    """Save a polished convergence plot for V0/V1/V2/V3/V4 comparisons."""
     import matplotlib.pyplot as plt
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
@@ -60,14 +62,39 @@ def save_convergence_plot(
             label="V2: Multiprocessing",
             zorder=4,
         )
-    ax.axhline(
-        y=baseline_final_fitness,
-        linestyle="--",
-        linewidth=2.0,
-        color="#7f7f7f",
-        alpha=0.85,
-        label="PySwarm: final fitness reference",
-    )
+    if asyncio_history:
+        ax.plot(
+            asyncio_history,
+            linewidth=2.3,
+            color="#e45756",
+            linestyle="-.",
+            marker="D",
+            markersize=3.2,
+            markevery=max(1, len(asyncio_history) // 12),
+            label="V3: Asyncio",
+            zorder=5,
+        )
+    if vectorized_history:
+        ax.plot(
+            vectorized_history,
+            linewidth=2.3,
+            color="#72b7b2",
+            linestyle="-",
+            marker="P",
+            markersize=3.2,
+            markevery=max(1, len(vectorized_history) // 12),
+            label="V4: Vectorized",
+            zorder=6,
+        )
+    if baseline_final_fitness is not None:
+        ax.axhline(
+            y=baseline_final_fitness,
+            linestyle="--",
+            linewidth=2.0,
+            color="#7f7f7f",
+            alpha=0.85,
+            label="PySwarm: final fitness reference",
+        )
 
     ax.set_xlabel("Iteration", fontsize=11)
     ax.set_ylabel("Best Fitness", fontsize=11)
@@ -82,12 +109,16 @@ def save_convergence_plot(
         positive_values.extend(threaded_history)
     if process_history:
         positive_values.extend(process_history)
+    if asyncio_history:
+        positive_values.extend(asyncio_history)
+    if vectorized_history:
+        positive_values.extend(vectorized_history)
 
     if (
         y_log_if_possible
         and positive_values
         and min(positive_values) > 0
-        and baseline_final_fitness > 0
+        and (baseline_final_fitness is None or baseline_final_fitness > 0)
     ):
         ax.set_yscale("log")
 

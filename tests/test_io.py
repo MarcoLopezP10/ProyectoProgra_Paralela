@@ -74,6 +74,72 @@ def test_save_summary_json_includes_execution_metadata(tmp_path):
     assert data["v0"]["auc"] == 1.23
 
 
+def test_save_summary_json_preserves_unavailable_method_fields(tmp_path):
+    out_path = tmp_path / "summary.json"
+    summary = ExperimentSummary(
+        objective="sphere",
+        dim=2,
+        bounds_lower=[-5.0, -5.0],
+        bounds_upper=[5.0, 5.0],
+        seed=42,
+        hyperparam_source="fixed_config",
+        w=0.7,
+        c1=1.5,
+        c2=1.5,
+        n_particles=30,
+        max_iters=100,
+        tol=1e-8,
+        patience=20,
+        v0=MethodResult(strategy="V0 Sequential", best_fitness=0.0, iterations=10),
+        v2=MethodResult(
+            status="unavailable",
+            strategy="V2 Multiprocessing",
+            error="PermissionError: sandbox blocked multiprocessing",
+        ),
+    )
+
+    save_summary_json(summary, str(out_path))
+
+    data = json.loads(out_path.read_text(encoding="utf-8"))
+    assert data["v2"]["status"] == "unavailable"
+    assert data["v2"]["best_fitness"] is None
+    assert "sandbox blocked multiprocessing" in data["v2"]["error"]
+
+
+def test_save_summary_json_includes_v4_results(tmp_path):
+    out_path = tmp_path / "summary.json"
+    summary = ExperimentSummary(
+        objective="sphere",
+        dim=2,
+        bounds_lower=[-5.0, -5.0],
+        bounds_upper=[5.0, 5.0],
+        seed=42,
+        hyperparam_source="fixed_config",
+        w=0.7,
+        c1=1.5,
+        c2=1.5,
+        n_particles=30,
+        max_iters=100,
+        tol=1e-8,
+        patience=20,
+        v0=MethodResult(strategy="V0 Sequential", best_fitness=0.0, iterations=10),
+        v4=MethodResult(
+            strategy="V4 Vectorized",
+            best_fitness=0.0,
+            iterations=10,
+            auc=1.11,
+            convergence_iteration=7,
+            timing=TimingBreakdown(total_s=0.5, eval_s=0.2, update_s=0.2, overhead_s=0.1),
+        ),
+    )
+
+    save_summary_json(summary, str(out_path))
+
+    data = json.loads(out_path.read_text(encoding="utf-8"))
+    assert data["v4"]["strategy"] == "V4 Vectorized"
+    assert data["v4"]["auc"] == 1.11
+
+
 def test_save_summary_json_supports_bare_filename(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     summary = ExperimentSummary(

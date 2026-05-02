@@ -71,3 +71,97 @@ def test_load_summaries_skips_missing_core_fields(tmp_path):
 
     assert summaries == []
     assert stats["skipped_missing_core"] == 1
+
+
+def test_load_summaries_preserves_unavailable_methods(tmp_path):
+    run_dir = tmp_path / "sphere_d2_s7"
+    run_dir.mkdir()
+    summary = {
+        "objective": "sphere",
+        "dim": 2,
+        "seed": 7,
+        "tol": 1e-8,
+        "v0": {
+            "status": "ok",
+            "best_fitness": 0.01,
+            "iterations": 3,
+            "timing": {"total_s": 1.0},
+        },
+        "v1": {
+            "status": "ok",
+            "best_fitness": 0.01,
+            "iterations": 3,
+            "timing": {"total_s": 1.2},
+        },
+        "v2": {
+            "status": "unavailable",
+            "best_fitness": None,
+            "iterations": None,
+            "timing": {"total_s": 0.0},
+            "error": "PermissionError: sandbox blocked multiprocessing",
+        },
+        "baseline": {
+            "status": "unavailable",
+            "best_fitness": None,
+            "iterations": None,
+            "timing": {"total_s": 0.0},
+            "error": "ModuleNotFoundError: No module named 'pyswarm'",
+        },
+    }
+    (run_dir / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    (run_dir / "history_v0.csv").write_text(
+        "iter,best_fitness\n0,1.0\n1,0.1\n2,0.01\n",
+        encoding="utf-8",
+    )
+    (run_dir / "history_v1.csv").write_text(
+        "iter,best_fitness\n0,1.0\n1,0.1\n2,0.01\n",
+        encoding="utf-8",
+    )
+
+    summaries, stats = _load_summaries(str(tmp_path))
+
+    assert stats["loaded"] == 1
+    loaded = summaries[0]
+    assert loaded["v2"]["status"] == "unavailable"
+    assert loaded["v2"]["best_fitness"] is None
+    assert loaded["baseline"]["status"] == "unavailable"
+    assert loaded["baseline"]["error"] is not None
+
+
+def test_load_summaries_accepts_v4_method(tmp_path):
+    run_dir = tmp_path / "sphere_d2_s11"
+    run_dir.mkdir()
+    summary = {
+        "objective": "sphere",
+        "dim": 2,
+        "seed": 11,
+        "tol": 1e-8,
+        "v0": {
+            "status": "ok",
+            "best_fitness": 0.01,
+            "iterations": 3,
+            "timing": {"total_s": 1.0},
+        },
+        "v4": {
+            "status": "ok",
+            "best_fitness": 0.01,
+            "iterations": 3,
+            "timing": {"total_s": 0.8},
+        },
+    }
+    (run_dir / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    (run_dir / "history_v0.csv").write_text(
+        "iter,best_fitness\n0,1.0\n1,0.1\n2,0.01\n",
+        encoding="utf-8",
+    )
+    (run_dir / "history_v4.csv").write_text(
+        "iter,best_fitness\n0,1.0\n1,0.1\n2,0.01\n",
+        encoding="utf-8",
+    )
+
+    summaries, stats = _load_summaries(str(tmp_path))
+
+    assert stats["loaded"] == 1
+    loaded = summaries[0]
+    assert loaded["v4"]["status"] == "ok"
+    assert loaded["v4"]["auc"] is not None

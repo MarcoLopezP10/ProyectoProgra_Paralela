@@ -1,6 +1,6 @@
 """core.pso
 
-PSO algorithm core shared by V0, V1, and V2.
+PSO algorithm core shared by V0, V1, V2, V3, and V4.
 
 Instruments:
 - Per-iteration timing: fitness evaluation, particle update, overhead
@@ -191,18 +191,45 @@ class PSO:
         try:
             for it in range(self.max_iters):
                 start_iter = time.perf_counter()
+                step_metrics = self.evaluator.step(
+                    self.swarm,
+                    self.bounds_handler,
+                    self.topology,
+                    self.w,
+                    self.c1,
+                    self.c2,
+                )
 
-                # ── 1. Evaluate fitness ───────────────────────────────────
-                positions = self.swarm.get_positions()
-                t0 = time.perf_counter()
-                fitness = self.evaluator.evaluate(positions)
-                t1 = time.perf_counter()
-                iter_eval_time = t1 - t0
-                self.time_eval += iter_eval_time
+                if step_metrics is None:
+                    # ── 1. Evaluate fitness ───────────────────────────────
+                    positions = self.swarm.get_positions()
+                    t0 = time.perf_counter()
+                    fitness = self.evaluator.evaluate(positions)
+                    t1 = time.perf_counter()
+                    iter_eval_time = t1 - t0
+                    self.time_eval += iter_eval_time
 
-                # ── 2. Update personal and global bests ──────────────────
-                self.swarm.update_global_best(positions, fitness)
-                self.history.append(self.swarm.global_best_fitness)
+                    # ── 2. Update personal and global bests ──────────────
+                    self.swarm.update_global_best(positions, fitness)
+                    self.history.append(self.swarm.global_best_fitness)
+
+                    # ── 5. Update velocities and positions ───────────────
+                    t2 = time.perf_counter()
+                    for p in self.swarm.particles:
+                        best_pos = self.topology.get_best_position(p, self.swarm)
+                        p.update_velocity(best_pos, self.w, self.c1, self.c2)
+                        p.update_position()
+                        p.position, p.velocity = self.bounds_handler.apply(
+                            p.position, p.velocity
+                        )
+                    t3 = time.perf_counter()
+                    iter_update_time = t3 - t2
+                else:
+                    iter_eval_time = float(step_metrics.get("eval_s", 0.0))
+                    iter_update_time = float(step_metrics.get("update_s", 0.0))
+                    self.time_eval += iter_eval_time
+                    self.time_update += iter_update_time
+                    self.history.append(self.swarm.global_best_fitness)
 
                 # ── 3. Early stopping check ───────────────────────────────
                 improvement = abs(prev_best - self.swarm.global_best_fitness)
@@ -211,19 +238,10 @@ class PSO:
                 else:
                     no_improve_counter = 0
 
-                # ── 5. Update velocities and positions ────────────────────
-                t2 = time.perf_counter()
-                for p in self.swarm.particles:
-                    best_pos = self.topology.get_best_position(p, self.swarm)
-                    p.update_velocity(best_pos, self.w, self.c1, self.c2)
-                    p.update_position()
-                    p.position, p.velocity = self.bounds_handler.apply(
-                        p.position, p.velocity
-                    )
-                t3 = time.perf_counter()
-                iter_update_time = t3 - t2
-                self.time_update += iter_update_time
-                iter_total_time = t3 - start_iter
+                if step_metrics is None:
+                    self.time_update += iter_update_time
+
+                iter_total_time = time.perf_counter() - start_iter
                 iter_overhead_time = max(
                     iter_total_time - iter_eval_time - iter_update_time,
                     0.0,

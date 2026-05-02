@@ -15,6 +15,8 @@ Each experiment is saved under:
         history_v0.csv       — V0 iteration metrics
         history_v1.csv       — V1 iteration metrics
         history_v2.csv       — V2 iteration metrics
+        history_v3.csv       — V3 iteration metrics
+        history_v4.csv       — V4 iteration metrics
 """
 
 from __future__ import annotations
@@ -58,9 +60,10 @@ class ExecutionMetadata:
 @dataclass
 class MethodResult:
     """Results for one evaluation strategy (V0, V1, …)."""
+    status: str = "ok"
     strategy: str = ""
-    best_fitness: float = float("inf")
-    iterations: int = 0
+    best_fitness: Optional[float] = None
+    iterations: Optional[int] = None
     # Some external baselines do not expose iteration-by-iteration history, so
     # derived convergence metrics are optional rather than forced to fake values.
     auc: Optional[float] = None
@@ -68,6 +71,7 @@ class MethodResult:
     timing: TimingBreakdown = field(default_factory=TimingBreakdown)
     max_workers: Optional[int] = None   # only relevant for thread/process variants
     batch_size: Optional[int] = None
+    error: Optional[str] = None
 
 
 @dataclass
@@ -95,6 +99,8 @@ class ExperimentSummary:
     v0: MethodResult = field(default_factory=MethodResult)
     v1: Optional[MethodResult] = None
     v2: Optional[MethodResult] = None
+    v3: Optional[MethodResult] = None
+    v4: Optional[MethodResult] = None
     baseline: Optional[MethodResult] = None
 
     winner: str = ""

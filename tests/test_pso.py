@@ -25,7 +25,8 @@ from core.pso import PSO
 from options.bounds import ClampBounds
 from options.evaluator import SequentialEvaluator
 from options.topology import GlobalBestTopology
-from parallel.evaluator import ProcessPoolEvaluator
+from parallel.evaluator import AsyncioEvaluator, ProcessPoolEvaluator, VectorizedNumpyEvaluator
+from objectives.latency_mix import latency_mix
 from objectives.sphere import sphere
 from objectives.ackley import ackley
 from objectives.rosenbrock import rosenbrock
@@ -139,7 +140,18 @@ class TestReproducibility:
 class TestMultiprocessingEvaluator:
     """V2 must preserve the same mathematical result as the sequential path."""
 
+    @staticmethod
+    def _require_process_pool_support() -> None:
+        try:
+            evaluator = ProcessPoolEvaluator(sphere, max_workers=2, batch_size=2)
+            evaluator.open()
+        except (PermissionError, NotImplementedError) as exc:
+            pytest.skip(f"Process pool unavailable in this environment: {exc}")
+        else:
+            evaluator.close()
+
     def test_process_evaluator_matches_sequential_fitness_list(self):
+        self._require_process_pool_support()
         positions = [
             np.array([1.0, 1.0]),
             np.array([2.0, 0.0]),
@@ -158,6 +170,7 @@ class TestMultiprocessingEvaluator:
         assert parallel == sequential
 
     def test_process_pso_matches_sequential_for_same_seed(self):
+        self._require_process_pool_support()
         pso_v0 = _make_pso(sphere, dim=4, n_particles=12, max_iters=60, seed=21)
         pso_v2 = _make_pso(
             sphere,
@@ -181,6 +194,112 @@ class TestMultiprocessingEvaluator:
 
         with pytest.raises(TypeError, match="picklable top-level objective function"):
             process_eval.open()
+
+
+class TestAsyncioEvaluator:
+    """V3 must preserve the same mathematical result while enabling async objectives."""
+
+    def test_asyncio_evaluator_matches_sequential_fitness_list_for_sync_objective(self):
+        positions = [
+            np.array([1.0, 1.0]),
+            np.array([2.0, 0.0]),
+            np.array([0.0, 3.0]),
+            np.array([1.0, 2.0]),
+        ]
+
+        sequential = SequentialEvaluator(sphere).evaluate(positions)
+        async_eval = AsyncioEvaluator(sphere)
+        parallel = async_eval.evaluate(positions)
+
+        assert parallel == sequential
+
+    def test_asyncio_evaluator_matches_sequential_fitness_list_for_latency_objective(self):
+        positions = [
+            np.array([0.5, 0.5]),
+            np.array([1.5, -0.5]),
+            np.array([-1.0, 2.0]),
+        ]
+
+        sequential = SequentialEvaluator(latency_mix).evaluate(positions)
+        async_eval = AsyncioEvaluator(latency_mix)
+        parallel = async_eval.evaluate(positions)
+
+        assert parallel == pytest.approx(sequential)
+
+    def test_asyncio_pso_matches_sequential_for_same_seed(self):
+        pso_v0 = _make_pso(sphere, dim=4, n_particles=12, max_iters=60, seed=21)
+        pso_v3 = _make_pso(
+            sphere,
+            dim=4,
+            n_particles=12,
+            max_iters=60,
+            seed=21,
+            evaluator=AsyncioEvaluator(sphere),
+        )
+
+        pos_v0, fit_v0, _, iters_v0 = pso_v0.run()
+        pos_v3, fit_v3, _, iters_v3 = pso_v3.run()
+
+        assert fit_v3 == pytest.approx(fit_v0)
+        assert iters_v3 == iters_v0
+        np.testing.assert_allclose(pos_v3, pos_v0)
+        assert pso_v3.history == pytest.approx(pso_v0.history)
+
+
+class TestVectorizedEvaluator:
+    """V4 must preserve results on supported objectives and fall back safely otherwise."""
+
+    @pytest.mark.parametrize("objective_fn", [sphere, ackley, rosenbrock, rastrigin])
+    def test_vectorized_evaluator_matches_sequential_fitness_list(self, objective_fn):
+        positions = [
+            np.array([1.0, 1.0]),
+            np.array([2.0, 0.0]),
+            np.array([0.0, 3.0]),
+            np.array([1.0, 2.0]),
+        ]
+
+        sequential = SequentialEvaluator(objective_fn).evaluate(positions)
+        vectorized = VectorizedNumpyEvaluator(objective_fn).evaluate(positions)
+
+        assert vectorized == pytest.approx(sequential)
+
+    def test_vectorized_pso_matches_sequential_for_same_seed(self):
+        pso_v0 = _make_pso(sphere, dim=4, n_particles=12, max_iters=60, seed=21)
+        pso_v4 = _make_pso(
+            sphere,
+            dim=4,
+            n_particles=12,
+            max_iters=60,
+            seed=21,
+            evaluator=VectorizedNumpyEvaluator(sphere),
+        )
+
+        pos_v0, fit_v0, _, iters_v0 = pso_v0.run()
+        pos_v4, fit_v4, _, iters_v4 = pso_v4.run()
+
+        assert fit_v4 == pytest.approx(fit_v0)
+        assert iters_v4 == iters_v0
+        np.testing.assert_allclose(pos_v4, pos_v0)
+        assert pso_v4.history == pytest.approx(pso_v0.history)
+
+    def test_vectorized_step_falls_back_cleanly_for_unsupported_objective(self):
+        pso_v0 = _make_pso(latency_mix, dim=2, n_particles=8, max_iters=12, seed=7)
+        pso_v4 = _make_pso(
+            latency_mix,
+            dim=2,
+            n_particles=8,
+            max_iters=12,
+            seed=7,
+            evaluator=VectorizedNumpyEvaluator(latency_mix),
+        )
+
+        pos_v0, fit_v0, _, iters_v0 = pso_v0.run()
+        pos_v4, fit_v4, _, iters_v4 = pso_v4.run()
+
+        assert fit_v4 == pytest.approx(fit_v0)
+        assert iters_v4 == iters_v0
+        np.testing.assert_allclose(pos_v4, pos_v0)
+        assert pso_v4.history == pytest.approx(pso_v0.history)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -271,6 +390,29 @@ class TestBoundsEnforcement:
 
         with pytest.raises(ValueError):
             Swarm(n_particles=10, dim=2, bounds=([1.0, -5.0], [1.0, 5.0]), rng=rng)
+
+    def test_swarm_rejects_mismatched_positions_or_fitness_lengths(self):
+        rng = np.random.default_rng(0)
+        swarm = Swarm(n_particles=2, dim=2, bounds=([-5.0, -5.0], [5.0, 5.0]), rng=rng)
+
+        positions = [np.array([0.0, 0.0])]
+        fitness = [0.0, 1.0]
+        with pytest.raises(ValueError, match="positions must contain exactly 2 entries"):
+            swarm.update_global_best(positions, fitness)
+
+        positions = [np.array([0.0, 0.0]), np.array([1.0, 1.0])]
+        fitness = [0.0]
+        with pytest.raises(ValueError, match="fitness_values must contain exactly 2 entries"):
+            swarm.update_global_best(positions, fitness)
+
+    def test_swarm_rejects_invalid_position_shape(self):
+        rng = np.random.default_rng(0)
+        swarm = Swarm(n_particles=2, dim=2, bounds=([-5.0, -5.0], [5.0, 5.0]), rng=rng)
+        positions = [np.array([0.0]), np.array([1.0, 1.0])]
+        fitness = [0.0, 1.0]
+
+        with pytest.raises(ValueError, match="shape \\(2,\\)"):
+            swarm.update_global_best(positions, fitness)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -29,16 +29,18 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import numpy as np
 
+from utils.methods import SUMMARY_METHOD_SPECS
 
 CONVERGENCE_METHODS = [
     ("v0", "V0 Sequential"),
     ("v1", "V1 Threading"),
     ("v2", "V2 Multiprocessing"),
+    ("v3", "V3 Asyncio"),
+    ("v4", "V4 Vectorized"),
 ]
 
-SUMMARY_METHODS = CONVERGENCE_METHODS + [
-    ("baseline", "PySwarm baseline"),
-]
+SUMMARY_METHODS = [(spec.key, spec.label) for spec in SUMMARY_METHOD_SPECS]
+METHOD_COLORS = {spec.key: spec.color for spec in SUMMARY_METHOD_SPECS}
 
 TIMING_COMPONENTS = [
     ("eval_s", "Evaluation", "#4c78a8"),
@@ -117,6 +119,16 @@ def _normalize_method_summary(
         return None
 
     method = dict(raw_method)
+    if method.get("status", "ok") != "ok":
+        timing = method.get("timing")
+        if not isinstance(timing, dict):
+            timing = {}
+        for key in ("total_s", "eval_s", "update_s", "overhead_s", "pct_eval", "pct_update"):
+            timing.setdefault(key, 0.0)
+        method["timing"] = timing
+        method.setdefault("strategy", label)
+        return method
+
     history = _load_history(
         _history_path(
             results_dir,
@@ -284,6 +296,7 @@ def _plot_group(summary_group: List[Dict], results_dir: str, out_dir: str, objec
         curves = [
             _load_history(_history_path(results_dir, objective, dim, summary["seed"], method_key))
             for summary in summary_group
+            if summary.get(method_key) and summary[method_key].get("status", "ok") == "ok"
         ]
         curves = [curve for curve in curves if curve]
         mean_values, std_values = _curve_mean_std(curves)
@@ -309,7 +322,13 @@ def _plot_group(summary_group: List[Dict], results_dir: str, out_dir: str, objec
     box_data = []
     box_labels = []
     for method_key, label in SUMMARY_METHODS:
-        values = [summary[method_key]["best_fitness"] for summary in summary_group if summary.get(method_key)]
+        values = [
+            summary[method_key]["best_fitness"]
+            for summary in summary_group
+            if summary.get(method_key)
+            and summary[method_key].get("status", "ok") == "ok"
+            and summary[method_key].get("best_fitness") is not None
+        ]
         if values:
             box_data.append(values)
             box_labels.append(label)
@@ -366,11 +385,17 @@ def _plot_group(summary_group: List[Dict], results_dir: str, out_dir: str, objec
     colors = []
     baseline_mean = mean(summary["v0"]["timing"]["total_s"] for summary in summary_group)
     for method_key, label in SUMMARY_METHODS[1:]:
-        method_times = [summary[method_key]["timing"]["total_s"] for summary in summary_group if summary.get(method_key)]
+        method_times = [
+            summary[method_key]["timing"]["total_s"]
+            for summary in summary_group
+            if summary.get(method_key)
+            and summary[method_key].get("status", "ok") == "ok"
+            and summary[method_key]["timing"]["total_s"] > 0
+        ]
         if method_times:
             labels.append(label)
             values.append(baseline_mean / mean(method_times))
-            colors.append("#7f7f7f" if method_key == "baseline" else {"v1": "#ff7f0e", "v2": "#2ca02c"}[method_key])
+            colors.append(METHOD_COLORS[method_key])
     if values:
         ax.bar(labels, values, color=colors)
     ax.set_title(f"Mean wall-clock speedup vs V0 - {objective} d={dim}")
@@ -387,7 +412,11 @@ def _plot_group(summary_group: List[Dict], results_dir: str, out_dir: str, objec
     available_methods = [
         (method_key, label)
         for method_key, label in CONVERGENCE_METHODS
-        if any(summary.get(method_key) for summary in summary_group)
+        if any(
+            summary.get(method_key)
+            and summary[method_key].get("status", "ok") == "ok"
+            for summary in summary_group
+        )
     ]
     if available_methods:
         bottoms = np.zeros(len(available_methods), dtype=float)
@@ -398,6 +427,7 @@ def _plot_group(summary_group: List[Dict], results_dir: str, out_dir: str, objec
                     summary[method_key]["timing"].get(component_key, 0.0)
                     for summary in summary_group
                     if summary.get(method_key)
+                    and summary[method_key].get("status", "ok") == "ok"
                 )
                 for method_key, _ in available_methods
             ]
@@ -444,7 +474,13 @@ def main(argv=None) -> None:
     for (objective, dim), group in sorted(grouped.items()):
         baseline_mean = mean(item["v0"]["timing"]["total_s"] for item in group)
         for method_key, method_label in SUMMARY_METHODS:
-            method_values = [item[method_key] for item in group if item.get(method_key)]
+            method_values = [
+                item[method_key]
+                for item in group
+                if item.get(method_key)
+                and item[method_key].get("status", "ok") == "ok"
+                and item[method_key].get("best_fitness") is not None
+            ]
             if not method_values:
                 continue
             mean_time_s = mean(item["timing"]["total_s"] for item in method_values)

@@ -10,9 +10,14 @@ interface (`FitnessEvaluator`) and a baseline implementation (`SequentialEvaluat
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Callable, Iterable, List
+from typing import TYPE_CHECKING, Callable, Iterable, List, Optional
 
 from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from core.swarm import Swarm
+    from options.bounds import BoundsPolicy
+    from options.topology import Topology
 
 
 class FitnessEvaluator(ABC):
@@ -24,6 +29,18 @@ class FitnessEvaluator(ABC):
 
     def close(self) -> None:
         """Release resources allocated for a run."""
+        return None
+
+    def step(
+        self,
+        swarm: "Swarm",
+        bounds_handler: "BoundsPolicy",
+        topology: "Topology",
+        w: float,
+        c1: float,
+        c2: float,
+    ) -> Optional[dict[str, float]]:
+        """Optionally execute one full PSO step and return timing metrics."""
         return None
 
     @abstractmethod
