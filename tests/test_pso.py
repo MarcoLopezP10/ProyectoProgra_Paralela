@@ -10,6 +10,7 @@ Minimal unit tests required by the project specification:
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import os
 
@@ -244,6 +245,16 @@ class TestAsyncioEvaluator:
         assert iters_v3 == iters_v0
         np.testing.assert_allclose(pos_v3, pos_v0)
         assert pso_v3.history == pytest.approx(pso_v0.history)
+
+    def test_asyncio_evaluator_works_inside_running_event_loop(self):
+        async def _run_inside_loop():
+            return AsyncioEvaluator(sphere).evaluate(
+                [np.array([1.0, 2.0]), np.array([0.5, -0.5])]
+            )
+
+        result = asyncio.run(_run_inside_loop())
+
+        assert result == pytest.approx([5.0, 0.5])
 
 
 class TestVectorizedEvaluator:

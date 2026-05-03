@@ -9,6 +9,7 @@ import asyncio
 import inspect
 import os
 import pickle
+import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from itertools import islice
@@ -21,13 +22,20 @@ from options.bounds import ClampBounds
 from options.evaluator import FitnessEvaluator, SequentialEvaluator
 from options.topology import GlobalBestTopology
 
+_PROCESS_OBJECTIVE_FN: Optional[Callable[[NDArray], float]] = None
 
-def _evaluate_batch(
-    objective_fn: Callable[[NDArray], float],
-    positions_batch: Sequence[NDArray],
-) -> List[float]:
+
+def _init_process_objective(objective_fn: Callable[[NDArray], float]) -> None:
+    """Install the objective once per worker process to avoid re-pickling per batch."""
+    global _PROCESS_OBJECTIVE_FN
+    _PROCESS_OBJECTIVE_FN = objective_fn
+
+
+def _evaluate_batch(positions_batch: Sequence[NDArray]) -> List[float]:
     """Evaluate a batch inside a worker process."""
-    return [objective_fn(position) for position in positions_batch]
+    if _PROCESS_OBJECTIVE_FN is None:
+        raise RuntimeError("Process worker objective is not initialised.")
+    return [_PROCESS_OBJECTIVE_FN(position) for position in positions_batch]
 
 
 def _chunked(items: Sequence[NDArray], batch_size: int) -> Iterator[List[NDArray]]:
@@ -154,7 +162,11 @@ class ProcessPoolEvaluator(FitnessEvaluator):
         """Create the process pool once and reuse it across the full PSO run."""
         if self._executor is None:
             self._validate_objective()
-            self._executor = ProcessPoolExecutor(max_workers=self.max_workers)
+            self._executor = ProcessPoolExecutor(
+                max_workers=self.max_workers,
+                initializer=_init_process_objective,
+                initargs=(self.objective_fn,),
+            )
 
     def close(self) -> None:
         """Shut down the pool after the PSO run finishes."""
@@ -173,11 +185,7 @@ class ProcessPoolEvaluator(FitnessEvaluator):
         effective_workers = self.max_workers or os.cpu_count() or 1
         batch_size = self.batch_size or max(1, len(positions_list) // (effective_workers * 2))
         batches = list(_chunked(positions_list, batch_size))
-        batch_results = self._executor.map(
-            _evaluate_batch,
-            [self.objective_fn] * len(batches),
-            batches,
-        )
+        batch_results = self._executor.map(_evaluate_batch, batches)
 
         fitness: List[float] = []
         for result in batch_results:
@@ -209,6 +217,25 @@ class AsyncioEvaluator(FitnessEvaluator):
         results = await asyncio.gather(*coroutines)
         return [float(value) for value in results]
 
+    def _run_in_worker_thread(self, positions: Sequence[NDArray]) -> List[float]:
+        """Bridge sync callers from an already-running event loop without nesting loops."""
+        result: dict[str, List[float]] = {}
+        error: dict[str, BaseException] = {}
+
+        def _runner() -> None:
+            try:
+                result["value"] = asyncio.run(self._evaluate_async(positions))
+            except BaseException as exc:  # pragma: no cover - re-raised below
+                error["value"] = exc
+
+        thread = threading.Thread(target=_runner, daemon=True)
+        thread.start()
+        thread.join()
+
+        if "value" in error:
+            raise error["value"]
+        return result["value"]
+
     def evaluate(self, positions: Iterable[NDArray]) -> List[float]:
         positions_list = list(positions)
         if not positions_list:
@@ -220,11 +247,7 @@ class AsyncioEvaluator(FitnessEvaluator):
             loop = None
 
         if loop is not None and loop.is_running():
-            new_loop = asyncio.new_event_loop()
-            try:
-                return new_loop.run_until_complete(self._evaluate_async(positions_list))
-            finally:
-                new_loop.close()
+            return self._run_in_worker_thread(positions_list)
 
         return asyncio.run(self._evaluate_async(positions_list))
 

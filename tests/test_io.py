@@ -5,17 +5,20 @@ import os
 import sys
 
 import logging
+import numpy as np
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from utils.io import (
     ExecutionMetadata,
     ExperimentSummary,
+    load_swarm_trajectory_npz,
     MethodResult,
     TimingBreakdown,
     save_history_csv,
     save_iteration_metrics_csv,
     save_summary_json,
+    save_swarm_trajectory_npz,
 )
 from utils.logger import setup_logger
 
@@ -66,12 +69,18 @@ def test_save_summary_json_includes_execution_metadata(tmp_path):
             timing=TimingBreakdown(total_s=1.0),
         ),
         execution=ExecutionMetadata(python_version="3.11"),
+        winner="V0 Sequential",
+        winner_internal="V0 Sequential",
+        winner_overall="PySwarm",
+        baseline_reference="PySwarm baseline improves on the best internal fitness by 1.0e-03.",
     )
     save_summary_json(summary, str(out_path))
 
     data = json.loads(out_path.read_text(encoding="utf-8"))
     assert data["execution"]["python_version"] == "3.11"
     assert data["v0"]["auc"] == 1.23
+    assert data["winner_internal"] == "V0 Sequential"
+    assert data["winner_overall"] == "PySwarm"
 
 
 def test_save_summary_json_preserves_unavailable_method_fields(tmp_path):
@@ -161,6 +170,35 @@ def test_save_summary_json_supports_bare_filename(tmp_path, monkeypatch):
     save_summary_json(summary, "summary.json")
 
     assert (tmp_path / "summary.json").exists()
+
+
+def test_save_and_load_swarm_trajectory_npz(tmp_path):
+    out_path = tmp_path / "trajectory_v0.npz"
+    save_swarm_trajectory_npz(
+        iteration_numbers=[0, 2],
+        positions=[
+            np.array([[1.0, 2.0], [3.0, 4.0]], dtype=float),
+            np.array([[0.5, 1.5], [2.5, 3.5]], dtype=float),
+        ],
+        global_bests=[
+            np.array([1.0, 2.0], dtype=float),
+            np.array([0.5, 1.5], dtype=float),
+        ],
+        fitness_history=[5.0, 2.5],
+        iteration_records=[
+            {"eval_s": 0.1, "update_s": 0.2, "overhead_s": 0.01, "iter_s": 0.31, "stall_count": 0},
+            {"eval_s": 0.08, "update_s": 0.18, "overhead_s": 0.02, "iter_s": 0.28, "stall_count": 1},
+        ],
+        out_path=str(out_path),
+    )
+
+    payload = load_swarm_trajectory_npz(str(out_path))
+
+    np.testing.assert_array_equal(payload["iteration_numbers"], np.array([0, 2]))
+    assert payload["positions"].shape == (2, 2, 2)
+    np.testing.assert_allclose(payload["global_bests"][1], np.array([0.5, 1.5]))
+    np.testing.assert_allclose(payload["fitness_history"], np.array([5.0, 2.5]))
+    np.testing.assert_allclose(payload["stall_count"], np.array([0.0, 1.0]))
 
 
 def test_save_csv_helpers_support_bare_filename(tmp_path, monkeypatch):

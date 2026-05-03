@@ -2,76 +2,83 @@
 
 ## 1. Purpose
 
-This repository implements a maintainable Particle Swarm Optimization (PSO) codebase in Python and uses it as an experimental platform to compare multiple execution strategies under the same algorithmic conditions.
+This repository implements a maintainable PSO codebase and uses it as an
+experimental platform for comparing multiple execution strategies while keeping
+the optimization logic fixed.
 
-The implemented scope now includes:
+Implemented strategies:
 
 - `V0`: sequential baseline
-- `V1`: thread-based concurrent evaluation
-- `V2`: process-based parallel evaluation with batching
-- `V3`: `asyncio`-based cooperative concurrency
-- `V4`: NumPy-vectorized evaluation and update for supported numerical objectives
+- `V1`: thread-based evaluation
+- `V2`: process-based evaluation with batching
+- `V3`: `asyncio`-based cooperative evaluation
+- `V4`: NumPy-vectorized evaluation and update
 
-The main design objective is fairness of comparison:
+The design constraint that drives the project is fairness:
 
-- the PSO logic must stay the same
-- the seed must stay the same
-- the swarm must start from the same initial state
-- only the execution strategy should change
+- same PSO equations
+- same initialization seed
+- same bounds policy
+- same topology
+- same stopping logic
+- same benchmark configuration
 
-That requirement shaped almost every architectural decision in the project.
-
----
+Only the execution path changes.
 
 ## 2. Core Design Principle
 
-### One PSO core, many execution strategies
+### One optimizer, many execution paths
 
-The central idea is that `V0`-`V4` are not five different PSO algorithms.
+The repository does not implement five unrelated PSOs.
 
-They are five execution paths for the same optimizer.
+It implements one PSO core with injectable execution strategies. This keeps the
+comparison scientifically meaningful: when two strategies produce the same final
+fitness under the same seed, the runtime difference can be attributed to the
+execution strategy rather than to an algorithmic change.
 
-Shared across versions:
+Shared across `V0`-`V4`:
 
-- particle representation
+- particle state
 - swarm state
 - velocity update equation
-- topology
-- bounds handling
-- stopping criteria
-- timing/reporting framework
+- global-best topology
+- clamp bounds policy
+- timing and persistence framework
 
-Different across versions:
+Variable across strategies:
 
-- how fitness values are computed
-- in `V4`, how the numerically heavy evaluation/update path is executed internally
-
-This separation is what makes the results scientifically defensible.
-
----
+- how fitness values are evaluated
+- whether the whole numerical step can be vectorized
 
 ## 3. Repository Architecture
 
-The repository is split by responsibility:
+The codebase is split by responsibility:
 
-- `core/`: particle state, swarm state, PSO loop
-- `options/`: abstract interfaces and strategy hooks
-- `parallel/`: concrete evaluator implementations (`V1`-`V4`)
-- `objectives/`: benchmark and applied objective functions
-- `experiment/`: orchestration for single runs, benchmarks, and EDL
-- `utils/`: persistence, metadata, logging, shared method metadata
-- `viz/`: convergence plots and report figures
+- `core/`: particle, swarm, and PSO loop
+- `options/`: interfaces for bounds, topology, and evaluation
+- `parallel/`: concrete evaluator implementations
+- `objectives/`: synthetic benchmarks and the EDL objective
+- `experiment/`: single runs, benchmark suites, grid search, EDL orchestration
+- `utils/`: persistence, logging, metadata, method metadata
+- `viz/`: convergence plots and swarm animations
 - `scripts/`: CLI entry points
-- `tests/`: correctness, compatibility, and reporting tests
+- `tests/`: correctness and compatibility tests
 
-This structure was chosen to:
+Dependency direction:
 
-- keep the optimizer core small and testable
-- isolate execution-strategy logic
-- make reporting reusable
-- support realistic workflows beyond toy benchmarks
+```text
+scripts -> experiment -> core
+                     -> parallel
+                     -> objectives
+                     -> utils
+                     -> viz
 
----
+core -> options
+parallel -> options
+```
+
+The important architectural property is that `core/` depends on interfaces, not
+on specific implementations.
 
 ## 4. Main Abstractions
 
@@ -79,27 +86,25 @@ This structure was chosen to:
 
 Defined in `options/evaluator.py`.
 
-It is the most important abstraction in the project.
-
-Baseline contract:
+Base contract:
 
 ```python
 evaluate(positions) -> list[float]
 ```
 
-Extended contract for `V4`:
+Extended optional contract:
 
 ```python
 step(swarm, bounds_handler, topology, w, c1, c2) -> dict[str, float] | None
 ```
 
-Why this matters:
+Why it exists:
 
-- `V0`, `V1`, `V2`, and `V3` only need batched fitness evaluation
-- `V4` needs one extra capability: execute a full vectorized PSO step
-- the optional `step()` hook allows that without forking the PSO loop into a separate implementation
+- `V0`, `V1`, `V2`, and `V3` need batched evaluation only
+- `V4` needs a fast path that can vectorize both evaluation and update
 
-This is the key design compromise of the `V4` stage: minimal core change, maximal reuse.
+This optional `step()` hook allowed `V4` to be added without forking the whole
+PSO implementation.
 
 ### `BoundsPolicy`
 
@@ -111,13 +116,14 @@ Current implementation:
 
 Behavior:
 
-- clip position to the valid search box
-- zero velocity components that hit the wall
+- clip the position to the valid search box
+- zero the velocity on the coordinates that hit a wall
 
-Reason for choosing it:
+Reason:
 
 - simple
-- stable
+- deterministic
+- stable in high dimensions
 - easy to reproduce in both scalar and vectorized code paths
 
 ### `Topology`
@@ -128,23 +134,16 @@ Current implementation:
 
 - `GlobalBestTopology`
 
-Reason for keeping it abstract:
+Reason:
 
-- preserves extensibility
-- keeps the optimizer ready for ring/local-best variants
-- allows `V4` to explicitly check whether the active topology is compatible with its fast path
+- keeps the implementation canonical
+- preserves a clean extension point for local-best/ring variants
+- allows `V4` to explicitly check whether the active topology is compatible
+  with the vectorized fast path
 
----
+## 5. Core PSO Decisions
 
-## 5. PSO Core Decisions
-
-### Shared swarm state
-
-The swarm stores:
-
-- particles
-- global best position
-- global best fitness
+### Shared state model
 
 Each particle stores:
 
@@ -154,150 +153,108 @@ Each particle stores:
 - personal best fitness
 - RNG state
 
-This design was kept across all versions to preserve equivalence.
+The swarm stores:
 
-### Re-runnable optimizer instances
+- particles
+- swarm-wide best position
+- swarm-wide best fitness
 
-`PSO` snapshots its initial swarm state and restores it before each `run()`.
+This was intentionally kept common to all strategies.
 
-Why:
+### Deterministic reruns
 
-- repeated runs must be deterministic
-- tests need exact restart behavior
-- comparisons across strategies require identical initial conditions
+`PSO.run()` restores the initial snapshot of the swarm before every new run.
+
+This is critical for:
+
+- reproducibility tests
+- exact strategy comparisons
+- repeated local experiments without rebuilding the optimizer object
 
 ### Monotonic global best
 
-The swarm best is monotonic by contract:
+The global best is monotonic by contract:
 
-- once a better solution is found, the global best is updated
+- once a better point is found, it becomes the new reference
 - the recorded best never worsens
 
-This is both an algorithmic property and a reporting guarantee.
+This is both an algorithmic invariant and a persistence/reporting invariant.
 
----
-
-## 6. Version-by-Version Design
+## 6. Strategy-Specific Design
 
 ### `V0` Sequential
 
-`V0` uses `SequentialEvaluator`.
+Purpose:
 
-Design goal:
-
-- provide the clearest correctness baseline
-- minimize machinery and overhead
-
-It is intentionally simple and serves as:
-
-- the functional reference
-- the speedup reference
+- correctness baseline
+- speedup reference
+- minimal overhead path
 
 ### `V1` Threading
 
-`V1` uses `ThreadPoolEvaluator`.
+Purpose:
 
-Design goal:
+- lightweight concurrency baseline
+- useful when evaluations can overlap waiting
 
-- compare sequential execution against lightweight concurrency
+Observed trade-off in final results:
 
-Why threads were included:
-
-- explicit assignment requirement
-- useful comparison point for latency-sensitive workloads
-- demonstrates how concurrency can be added without touching PSO logic
-
-Limit:
-
-- still constrained by Python scheduling and often by the GIL
+- usually close to `V0` on numerical workloads
+- sometimes slightly faster, sometimes slower
+- clearly useful only when evaluation latency is present
 
 ### `V2` Multiprocessing
 
-`V2` uses `ProcessPoolEvaluator`.
+Purpose:
 
-Design goal:
+- true parallel baseline outside the GIL
 
-- provide a true parallel baseline outside the GIL
+Important implementation details:
 
-Important design details:
+- objective validation through pickling
+- task batching
+- worker initializer now installs the objective once per process
 
-- objective must be picklable
-- work is batched before dispatch
+Why the initializer matters:
 
-Why batching exists:
+- it avoids re-pickling the objective for every dispatched batch
+- it removes avoidable overhead from the earlier implementation
 
-- single-particle process tasks create too much IPC overhead
-- medium-size batches amortize serialization cost better
+Observed trade-off:
 
-Limit:
-
-- process startup and IPC remain expensive on lightweight objectives
+- still expensive on small and medium benchmarks
+- sometimes mildly competitive on heavier workloads
+- highly sensitive to IPC and serialization costs
 
 ### `V3` Asyncio
 
-`V3` uses `AsyncioEvaluator`.
+Purpose:
 
-Design goal:
+- cooperative concurrency for latency-shaped workloads
 
-- support objectives whose evaluations benefit from cooperative concurrency
+Important design update:
 
-Why `asyncio` was added:
+- the evaluator now works even if it is called while an event loop is already
+  running
+- this is handled by bridging the async evaluation through a worker thread
+  instead of incorrectly nesting loops
 
-- not all useful performance problems are CPU-bound
-- some workloads are dominated by waiting or synthetic latency
-- `latency_mix` was added specifically to exercise this design space
+Why this matters:
 
-Important property:
+- it makes `V3` compatible with notebooks, async environments, and async tests
+- it removes a real correctness issue from the previous implementation
 
-- `V3` preserves the same PSO result as `V0`
-- it only changes how independent evaluations are scheduled
+Observed trade-off:
 
-Limit:
-
-- it is not inherently a numeric acceleration strategy
+- not a universal numeric speedup strategy
+- can still be competitive in some numerical runs
+- is conceptually strongest for latency overlap
 
 ### `V4` Vectorized
 
-`V4` uses `VectorizedNumpyEvaluator`.
+Purpose:
 
-Design goal:
-
-- reduce Python-loop overhead in numerical PSO workloads
-- implement vectorized evaluation and update without rewriting the full optimizer
-
-This version is the most design-sensitive stage in the project.
-
-#### Why `V4` was not implemented as a second PSO engine
-
-A full rewrite of the swarm as matrix-native state would have:
-
-- changed too much of the core
-- made fairness harder to defend
-- increased maintenance cost
-
-Instead, the project keeps the same PSO core and adds one optional evaluator hook.
-
-#### Minimal-core integration strategy
-
-The main loop in `core/pso.py` now does this:
-
-1. ask the evaluator whether it can execute a full optimized step
-2. if not, run the classic `V0`/`V1`/`V2`/`V3` path
-3. if yes, accept the updated swarm state and continue with history, stopping, and reporting
-
-This means:
-
-- `V0`-`V3` behavior remains unchanged
-- `V4` gets the extra power it needs
-- the core remains the orchestration layer
-
-#### Fast path and fallback
-
-`V4` uses a vectorized fast path only when all of the following are true:
-
-- the objective is one of the supported numerical benchmarks
-- the bounds policy is `ClampBounds`
-- the topology is `GlobalBestTopology`
+- accelerate regular numerical workloads by reducing Python overhead
 
 Supported vectorized objectives:
 
@@ -306,166 +263,120 @@ Supported vectorized objectives:
 - `rastrigin`
 - `rosenbrock`
 
-If the objective is unsupported, `V4` falls back safely.
+Compatibility requirements for the fast path:
 
-This was a deliberate design decision:
+- vectorized objective available
+- `ClampBounds`
+- `GlobalBestTopology`
 
-- correctness first
-- fast path where it is mathematically clean
-- no fake vectorization on incompatible objectives
+If any requirement is not met, `V4` falls back safely to standard evaluation.
 
-#### Reproducibility detail
+This design preserves correctness and keeps the fast path honest.
 
-One subtle issue in `V4` was RNG usage.
+## 7. Persistence and Observability
 
-Although NumPy vectorization encourages batch random generation, the project uses shared deterministic particle RNG states. That means the order of `r1`/`r2` sampling must match the scalar implementation.
+Each run stores:
 
-So `V4` uses vectorized arithmetic but preserves scalar RNG sampling order where needed.
+- `summary.json`
+- `history_v*.csv`
+- `trajectory_v*.npz`
 
-This was necessary to keep exact seed-based equivalence with `V0`.
+The summary now distinguishes:
 
----
+- `winner_internal`: best method among `V0`-`V4`
+- `winner_overall`: best method when the external PySwarm reference is also
+  considered
+- `baseline_reference`: text describing how PySwarm compares against the best
+  internal result
 
-## 7. Timing and Observability
+This separation is important because PySwarm is an external implementation, not
+part of the controlled internal PSO family.
 
-The project records:
+Timing instrumentation includes:
 
-- total time
+- total wall-clock time
 - evaluation time
 - update time
 - residual overhead
 
-Why this matters:
+The animation workflow now reads persisted trajectory archives instead of
+implicitly re-running a similar optimizer configuration.
 
-- speedup alone is not enough
-- the project needs to explain *where* time is going
-- `V4` especially changes the balance between evaluation cost and update cost
+## 8. Final Experimental Evidence
 
-Examples from the final results:
+The final benchmark protocol executed:
 
-- on `sphere d=30`, `V4` reduced wall-clock time dramatically because both evaluation and update benefited from vectorization
-- on `latency_mix`, `V4` did not help because the bottleneck was latency, not numeric loops
+- objectives: `sphere`, `ackley`, `rosenbrock`, `rastrigin`
+- dimensions: `2`, `10`, `30`
+- seeds: `0`, `1`, `7`, `42`, `123`
+- total runs: `60`
 
-This timing structure makes those interpretations possible.
+Artifacts:
 
----
+- raw suite: `results/benchmark_suites/final_protocol_check/`
+- aggregated analysis: `reports/analysis_final_protocol/`
 
-## 8. Persistence and Reporting Design
+What the design enabled:
 
-Each saved run stores:
+- same final fitness across internal strategies in the final suite
+- direct comparison of overhead structures
+- workload-sensitive interpretation instead of a one-size-fits-all claim
 
-- structured `summary.json`
-- per-iteration CSV history per method
-- timing and convergence metrics
+Representative aggregate findings:
 
-The persistence layer had to evolve when `V3` and `V4` were added:
+- `sphere d=30`: `V4` mean speedup `3.86x`
+- `ackley d=30`: `V4` mean speedup `7.85x`
+- `rosenbrock d=10`: `V4` mean speedup `6.31x`
+- `rosenbrock d=30`: `V4` mean speedup `5.47x`
+- `rastrigin d=10`: `V4` mean speedup `6.01x`
+- `rastrigin d=30`: `V4` mean speedup `5.99x`
 
-- `MethodResult` now supports unavailable methods cleanly
-- new method slots were added to summaries
-- reporting tools were made backward-compatible with older summaries
+Interpretation:
 
-This was important because:
+- the modular design successfully isolated execution strategy effects
+- vectorization is the dominant optimization route for regular numerical PSO
+- concurrency without arithmetic restructuring is much less reliable on these
+  benchmark sizes
 
-- the schema evolved during development
-- old results still needed to remain analyzable
+## 9. Applied EDL Evidence
 
----
+The EDL workflow reuses the same architectural structure:
 
-## 9. EDL Design Position
+- same core PSO loop
+- same strategy injection model
+- different objective only
 
-The Economic Load Dispatch workflow is intentionally separate from the synthetic benchmark workflow.
+Observed default execution on the `3U` case:
 
-Why:
+- `V0`, `V1`, and `V2` reached the same dispatch vector on valid variants
+- the winner changed only by runtime
+- this confirms behavioral consistency in a constrained engineering problem
 
-- EDL is an applied constrained optimization problem
-- not every benchmark-oriented execution strategy is wired into EDL
-- EDL should remain honest about case compatibility and domain constraints
+That is a strong sign that the abstraction boundaries are correct: the
+execution strategy changes runtime characteristics without changing the solution
+path of the optimizer family.
 
-Current EDL comparison scope:
+## 10. Main Limitations
 
-- `V0`
-- `V1`
-- `V2`
+- `V4` only vectorizes supported numerical objectives
+- `V2` remains costly for many realistic benchmark sizes
+- `V3` is meaningful mainly when the workload exposes latency or awaitable work
+- the project keeps `global-best` only; a local-best topology is not yet
+  included
 
-Important applied-design behavior:
+These limitations are acceptable and explicitly documented. They do not weaken
+the main conclusion of the project.
 
-- if a case does not include a loss model, variants requiring losses are marked `unavailable`
-- this prevents invalid runs from being reported as if they were meaningful
+## 11. Final Design Conclusion
 
-Example:
+The architecture achieved its goal:
 
-- `edl_case_40u.json` supports `edl_1` and `edl_2`
-- `edl_4` is correctly marked unavailable there because transmission-loss data is absent
+- one PSO core
+- multiple comparable execution strategies
+- reproducible runs
+- meaningful persistence
+- experimentally defensible conclusions
 
-This is not a failure of the optimizer; it is a correctness guard in the experiment layer.
-
----
-
-## 10. Testing Strategy
-
-The test suite now validates:
-
-- seed reproducibility
-- bounds enforcement
-- monotonic global best
-- equivalence of `V0`, `V2`, `V3`, and `V4` on shared objectives
-- fallback behavior for unsupported `V4` objectives
-- persistence compatibility
-- reporting compatibility
-
-Why this matters:
-
-- the project is not only about getting one result
-- it is about guaranteeing that new execution strategies do not silently change optimization semantics
-
-`V4` in particular required tests for:
-
-- vectorized fitness equivalence
-- PSO trajectory equivalence on supported objectives
-- safe fallback on unsupported objectives such as `latency_mix`
-
----
-
-## 11. Main Design Trade-Offs
-
-### Fairness vs raw specialization
-
-The project chooses fairness:
-
-- one common optimizer
-- strategy changes isolated behind interfaces
-
-instead of building separate hand-tuned PSO engines per version.
-
-### Minimal core change vs maximum vectorization purity
-
-For `V4`, the project chooses minimal core change:
-
-- small hook in the evaluator interface
-- small branch in the PSO loop
-
-instead of a full matrix-native optimizer rewrite.
-
-This keeps the architecture coherent and easier to defend.
-
-### Honest fallback vs overclaiming support
-
-The project chooses honest fallback:
-
-- vectorize only where cleanly supported
-- fall back where not supported
-
-instead of pretending every objective is equally suited to `V4`.
-
----
-
-## 12. Final Design Rationale
-
-The final architecture supports two strong claims:
-
-1. The repository is maintainable because algorithmic logic, execution strategy, and reporting are cleanly separated.
-2. The benchmark conclusions are defensible because the versions differ mainly in execution strategy, not in hidden optimizer behavior.
-
-The most important design result of the repository is therefore not only that it implements PSO correctly, but that it implements **comparable PSO variants correctly**.
-
-That is what makes the `V0`-`V4` experimental story credible.
+The final evidence strongly supports `V4` as the recommended strategy for
+structured numerical workloads, while `V1` and `V3` remain useful reference
+points for concurrency-oriented or latency-oriented scenarios.

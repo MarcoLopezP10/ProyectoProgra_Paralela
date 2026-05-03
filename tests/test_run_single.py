@@ -74,3 +74,39 @@ def test_run_one_objective_marks_v2_and_baseline_unavailable(monkeypatch, tmp_pa
     assert result["baseline"]["status"] == "unavailable"
     assert "pyswarm" in result["baseline"]["error"]
     assert result["winner"] in {"V0 Sequential", "V1 Threading", "V3 Asyncio", "V4 Vectorized", "Tie"}
+    assert result["winner_internal"] == result["winner"]
+    assert result["winner_overall"] in {"V0 Sequential", "V1 Threading", "V3 Asyncio", "V4 Vectorized", "Tie"}
+    assert "PySwarm baseline unavailable" in result["baseline_reference"]
+
+
+def test_run_one_objective_saves_trajectory_archives(monkeypatch, tmp_path):
+    def fake_baseline(**kwargs):
+        raise ModuleNotFoundError("No module named 'pyswarm'")
+
+    monkeypatch.setattr("experiment.run_single.run_pyswarm_baseline", fake_baseline)
+
+    result = run_one_objective(
+        sphere,
+        RunConfig(
+            seed=9,
+            dim=2,
+            bounds=([-5.0], [5.0]),
+            n_particles=8,
+            max_iters=6,
+            patience=6,
+            out_dir=str(tmp_path / "results"),
+            plots_dir=str(tmp_path / "plots"),
+            log_dir=str(tmp_path / "logs"),
+            save_files=True,
+            save_trajectories=True,
+            trajectory_stride=2,
+            log_every=0,
+        ),
+    )
+
+    run_dir = tmp_path / "results" / "sphere_d2_s9"
+    assert (run_dir / "trajectory_v0.npz").exists()
+    assert (run_dir / "trajectory_v1.npz").exists()
+    assert (run_dir / "trajectory_v3.npz").exists()
+    assert (run_dir / "trajectory_v4.npz").exists()
+    assert result["save_trajectories"] is True

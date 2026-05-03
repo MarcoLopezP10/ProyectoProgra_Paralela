@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import sys
 import time
@@ -53,6 +54,9 @@ OBJECTIVES = {
 
 DEFAULT_DIMS  = [2, 10, 30]
 DEFAULT_SEEDS = [42, 7]
+REPORT_OBJECTIVES = ["sphere", "ackley", "rosenbrock", "rastrigin"]
+REPORT_DIMS = [2, 10, 30]
+MIN_REPORT_SEEDS = 5
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -101,6 +105,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--log-dir",   default="logs")
     p.add_argument("--summary-csv", default="results/benchmark_summary.csv",
                    help="Path for the aggregated summary CSV.")
+    p.add_argument("--suite-name", default=None,
+                   help="Optional suite folder under results/benchmark_suites/ to keep report runs isolated.")
+    p.add_argument("--report-ready", action="store_true",
+                   help="Validate that the suite covers the minimum report protocol before running.")
     return p.parse_args(argv)
 
 
@@ -135,6 +143,7 @@ CSV_FIELDS = [
     "selected_grid_metric",
     "baseline_fitness", "baseline_time_s",
     "v2_error", "v3_error", "v4_error", "baseline_error",
+    "winner_internal", "winner_overall", "baseline_reference",
     "winner",
 ]
 
@@ -231,8 +240,74 @@ def _result_to_row(result: dict) -> dict:
         "v3_error":     v3.get("error"),
         "v4_error":     v4.get("error"),
         "baseline_error": bl.get("error"),
+        "winner_internal": result.get("winner_internal", result["winner"]),
+        "winner_overall": result.get("winner_overall", result["winner"]),
+        "baseline_reference": result.get("baseline_reference"),
         "winner":       result["winner"],
     }
+
+
+def _resolve_suite_paths(args: argparse.Namespace) -> None:
+    if not args.suite_name:
+        return
+
+    suite_root = os.path.join("results", "benchmark_suites", args.suite_name)
+    if args.out_dir == "results/runs":
+        args.out_dir = os.path.join(suite_root, "runs")
+    if args.plots_dir == "logs/convergence":
+        args.plots_dir = os.path.join(suite_root, "plots", "convergence")
+    if args.log_dir == "logs":
+        args.log_dir = os.path.join(suite_root, "logs")
+    if args.summary_csv == "results/benchmark_summary.csv":
+        args.summary_csv = os.path.join(suite_root, "benchmark_summary.csv")
+
+
+def _validate_report_ready(args: argparse.Namespace) -> None:
+    missing_objectives = [name for name in REPORT_OBJECTIVES if name not in args.objective]
+    missing_dims = [dim for dim in REPORT_DIMS if dim not in args.dims]
+    if missing_objectives:
+        raise ValueError(
+            "--report-ready requires the four core numerical benchmarks: "
+            f"missing {missing_objectives}."
+        )
+    if missing_dims:
+        raise ValueError(
+            "--report-ready requires dimensions 2, 10 and 30: "
+            f"missing {missing_dims}."
+        )
+    if len(args.seeds) < MIN_REPORT_SEEDS:
+        raise ValueError(
+            f"--report-ready requires at least {MIN_REPORT_SEEDS} seeds, got {len(args.seeds)}."
+        )
+
+
+def _write_suite_manifest(args: argparse.Namespace, total_runs: int, suite_elapsed: float) -> None:
+    manifest_path = os.path.join(
+        os.path.dirname(os.path.abspath(args.summary_csv)),
+        "suite_manifest.json",
+    )
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "suite_name": args.suite_name,
+                "report_ready": bool(args.report_ready),
+                "objectives": list(args.objective),
+                "dims": list(args.dims),
+                "seeds": list(args.seeds),
+                "total_runs": int(total_runs),
+                "grid_search": bool(args.grid_search),
+                "grid_strategy": args.grid_strategy,
+                "grid_metric": args.grid_metric,
+                "out_dir": args.out_dir,
+                "plots_dir": args.plots_dir,
+                "log_dir": args.log_dir,
+                "summary_csv": args.summary_csv,
+                "elapsed_s": float(suite_elapsed),
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -241,6 +316,9 @@ def _result_to_row(result: dict) -> dict:
 
 def main(argv=None) -> None:
     args = parse_args(argv)
+    _resolve_suite_paths(args)
+    if args.report_ready:
+        _validate_report_ready(args)
 
     total = len(args.objective) * len(args.dims) * len(args.seeds)
     print(
@@ -295,6 +373,7 @@ def main(argv=None) -> None:
         writer.writerows(rows)
 
     suite_elapsed = time.perf_counter() - suite_start
+    _write_suite_manifest(args, total, suite_elapsed)
     print(f"\n{'='*60}")
     print(f"  Benchmark suite complete in {suite_elapsed:.1f}s")
     print(f"  Summary CSV → {args.summary_csv}")

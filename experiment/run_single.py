@@ -40,8 +40,10 @@ from utils.io import (
     result_dir,
     save_iteration_metrics_csv,
     save_summary_json,
+    save_swarm_trajectory_npz,
 )
 from viz.convergence import save_convergence_plot
+from viz.swarm_animation import SwarmRecorder
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -82,6 +84,8 @@ class RunConfig:
     repo_root: str = "."
 
     save_files: bool = True
+    save_trajectories: bool = True
+    trajectory_stride: int = 1
 
     def bounds_for_dim(self) -> Tuple[List[float], List[float]]:
         """Return bounds resolved for cfg.dim while preserving explicit per-dim inputs."""
@@ -121,6 +125,7 @@ def _build_pso(
     n_particles: int,
     evaluator,
     logger: Optional[logging.Logger] = None,
+    on_iteration: Optional[Callable[[int, Swarm, dict[str, float]], None]] = None,
 ) -> PSO:
     """Construct a PSO instance with the given evaluator, same seed always."""
     rng = np.random.default_rng(cfg.seed)
@@ -143,6 +148,7 @@ def _build_pso(
         patience=cfg.patience,
         log_every=cfg.log_every,
         logger=logger,
+        on_iteration=on_iteration,
     )
 
 
@@ -186,6 +192,31 @@ def _resolve_winner(
         n for n, t in candidates if np.isclose(t, best_time, atol=1e-12, rtol=0.0)
     ]
     return winners[0] if len(winners) == 1 else "Tie"
+
+
+def _describe_baseline_reference(
+    baseline_result: Dict[str, Any],
+    internal_best_fitness: Optional[float],
+) -> str:
+    """Summarize how the external PySwarm baseline compares to the best internal run."""
+    if baseline_result["status"] != "ok":
+        return f"PySwarm baseline unavailable: {baseline_result['error']}"
+    if internal_best_fitness is None or baseline_result["best_fit"] is None:
+        return "PySwarm baseline available, but no internal winner could be established."
+
+    baseline_fit = float(baseline_result["best_fit"])
+    diff = baseline_fit - float(internal_best_fitness)
+    if np.isclose(diff, 0.0, atol=1e-15, rtol=0.0):
+        relation = "matches"
+    elif diff < 0.0:
+        relation = "improves on"
+    else:
+        relation = "lags behind"
+
+    return (
+        f"PySwarm baseline {relation} the best internal fitness by "
+        f"{abs(diff):.6e}."
+    )
 
 
 def _build_method_result(
@@ -400,7 +431,10 @@ def _run_optional_pso(
     max_workers: Optional[int] = None,
     batch_size: Optional[int] = None,
     allow_unavailable: bool = False,
+    capture_trajectory: bool = False,
+    trajectory_stride: int = 1,
 ) -> Dict[str, Any]:
+    recorder = SwarmRecorder(stride=trajectory_stride) if capture_trajectory else None
     pso = _build_pso(
         cfg,
         bounds,
@@ -415,6 +449,7 @@ def _run_optional_pso(
             batch_size=batch_size,
         ),
         logger,
+        on_iteration=None if recorder is None else recorder.callback,
     )
     try:
         best_pos, best_fit, time_s, iters = pso.run()
@@ -437,7 +472,15 @@ def _run_optional_pso(
             "convergence_iter": None,
             "history": [],
             "iteration_records": [],
+            "recorder": None,
         }
+
+    if recorder is not None and pso.iteration_records:
+        recorder.ensure_final_state(
+            pso.swarm,
+            len(pso.history) - 1,
+            pso.iteration_records[-1],
+        )
 
     return {
         "status": "ok",
@@ -452,6 +495,7 @@ def _run_optional_pso(
         "convergence_iter": pso.convergence_iteration(),
         "history": list(pso.history),
         "iteration_records": list(pso.iteration_records),
+        "recorder": recorder,
     }
 
 
@@ -584,6 +628,8 @@ def run_one_objective(
         strategy="v0",
         objective=objective,
         logger=v0_log,
+        capture_trajectory=cfg.save_files and cfg.save_trajectories,
+        trajectory_stride=cfg.trajectory_stride,
     )
 
     # ── 3. V1 — Threading ────────────────────────────────────────────
@@ -599,6 +645,8 @@ def run_one_objective(
         objective=objective,
         logger=v1_log,
         max_workers=cfg.thread_max_workers,
+        capture_trajectory=cfg.save_files and cfg.save_trajectories,
+        trajectory_stride=cfg.trajectory_stride,
     )
 
     # ── 4. V2 — Multiprocessing ───────────────────────────────────────
@@ -616,6 +664,8 @@ def run_one_objective(
         max_workers=cfg.process_max_workers,
         batch_size=cfg.batch_size,
         allow_unavailable=True,
+        capture_trajectory=cfg.save_files and cfg.save_trajectories,
+        trajectory_stride=cfg.trajectory_stride,
     )
 
     # ── 5. V3 — Asyncio ───────────────────────────────────────────────
@@ -631,6 +681,8 @@ def run_one_objective(
         objective=objective,
         logger=v3_log,
         allow_unavailable=True,
+        capture_trajectory=cfg.save_files and cfg.save_trajectories,
+        trajectory_stride=cfg.trajectory_stride,
     )
 
     # ── 6. V4 — NumPy vectorized ──────────────────────────────────────
@@ -646,6 +698,8 @@ def run_one_objective(
         objective=objective,
         logger=v4_log,
         allow_unavailable=True,
+        capture_trajectory=cfg.save_files and cfg.save_trajectories,
+        trajectory_stride=cfg.trajectory_stride,
     )
 
     # ── 7. PySwarm baseline ───────────────────────────────────────────
@@ -663,7 +717,14 @@ def run_one_objective(
     )
 
     # ── 8. Winner ─────────────────────────────────────────────────────
-    winner = _resolve_winner([
+    winner_internal = _resolve_winner([
+        ("V0 Sequential", v0_result["best_fit"], v0_result["time_s"], v0_result["status"]),
+        ("V1 Threading", v1_result["best_fit"], v1_result["time_s"], v1_result["status"]),
+        ("V2 Multiprocessing", v2_result["best_fit"], v2_result["time_s"], v2_result["status"]),
+        ("V3 Asyncio", v3_result["best_fit"], v3_result["time_s"], v3_result["status"]),
+        ("V4 Vectorized", v4_result["best_fit"], v4_result["time_s"], v4_result["status"]),
+    ])
+    winner_overall = _resolve_winner([
         ("V0 Sequential", v0_result["best_fit"], v0_result["time_s"], v0_result["status"]),
         ("V1 Threading", v1_result["best_fit"], v1_result["time_s"], v1_result["status"]),
         ("V2 Multiprocessing", v2_result["best_fit"], v2_result["time_s"], v2_result["status"]),
@@ -671,6 +732,18 @@ def run_one_objective(
         ("V4 Vectorized", v4_result["best_fit"], v4_result["time_s"], v4_result["status"]),
         ("PySwarm", baseline_result["best_fit"], baseline_result["time_s"], baseline_result["status"]),
     ])
+    internal_best_fitness = min(
+        (
+            float(result["best_fit"])
+            for result in (v0_result, v1_result, v2_result, v3_result, v4_result)
+            if result["status"] == "ok" and result["best_fit"] is not None
+        ),
+        default=None,
+    )
+    baseline_reference = _describe_baseline_reference(
+        baseline_result,
+        internal_best_fitness,
+    )
 
     # ── 9. Log summary ────────────────────────────────────────────────
     log.info(
@@ -717,7 +790,8 @@ def run_one_objective(
             f"event=summary method=PySwarm fit={baseline_result['best_fit']:.6e} "
             f"iters={baseline_result['iters']} time_s={baseline_result['time_s']:.4f}"
         )
-    log.info(f"event=summary winner={winner}")
+    log.info(f"event=summary winner_internal={winner_internal} winner_overall={winner_overall}")
+    log.info(f"event=summary baseline_reference=\"{baseline_reference}\"")
 
     # ── 10. Console table ─────────────────────────────────────────────
     _print_table(
@@ -739,7 +813,7 @@ def run_one_objective(
         v4_pct_eval=v4_result["timing"]["pct_eval"], v4_pct_update=v4_result["timing"]["pct_update"],
         v4_conv_iter=v4_result["convergence_iter"],
         base_fit=baseline_result["best_fit"], base_iters=baseline_result["iters"], base_time=baseline_result["time_s"],
-        winner=winner, thread_max_workers=cfg.thread_max_workers,
+        winner=winner_internal, thread_max_workers=cfg.thread_max_workers,
         process_max_workers=cfg.process_max_workers, batch_size=cfg.batch_size,
         v2_status=v2_result["status"], v3_status=v3_result["status"], v4_status=v4_result["status"],
         baseline_status=baseline_result["status"],
@@ -831,7 +905,10 @@ def run_one_objective(
                 status=baseline_result["status"],
                 error=baseline_result["error"],
             ),
-            winner=winner,
+            winner=winner_internal,
+            winner_internal=winner_internal,
+            winner_overall=winner_overall,
+            baseline_reference=baseline_reference,
             selected_grid_metric=cfg.grid_metric if cfg.use_grid_search else None,
             execution=execution_metadata,
             notes=(
@@ -850,6 +927,11 @@ def run_one_objective(
         history_v2_path = os.path.join(rdir, "history_v2.csv")
         history_v3_path = os.path.join(rdir, "history_v3.csv")
         history_v4_path = os.path.join(rdir, "history_v4.csv")
+        trajectory_v0_path = os.path.join(rdir, "trajectory_v0.npz")
+        trajectory_v1_path = os.path.join(rdir, "trajectory_v1.npz")
+        trajectory_v2_path = os.path.join(rdir, "trajectory_v2.npz")
+        trajectory_v3_path = os.path.join(rdir, "trajectory_v3.npz")
+        trajectory_v4_path = os.path.join(rdir, "trajectory_v4.npz")
 
         save_summary_json(summary, summary_path)
         save_iteration_metrics_csv(v0_result["iteration_records"], history_v0_path)
@@ -860,6 +942,25 @@ def run_one_objective(
             save_iteration_metrics_csv(v3_result["iteration_records"], history_v3_path)
         if v4_result["status"] == "ok":
             save_iteration_metrics_csv(v4_result["iteration_records"], history_v4_path)
+        if cfg.save_trajectories:
+            for result, out_path in [
+                (v0_result, trajectory_v0_path),
+                (v1_result, trajectory_v1_path),
+                (v2_result, trajectory_v2_path),
+                (v3_result, trajectory_v3_path),
+                (v4_result, trajectory_v4_path),
+            ]:
+                recorder = result.get("recorder")
+                if result["status"] != "ok" or recorder is None:
+                    continue
+                save_swarm_trajectory_npz(
+                    iteration_numbers=list(recorder.iteration_numbers),
+                    positions=list(recorder.positions),
+                    global_bests=list(recorder.global_bests),
+                    fitness_history=list(recorder.fitness_history),
+                    iteration_records=list(recorder.iteration_metrics),
+                    out_path=out_path,
+                )
 
     else:
         plot_path = None
@@ -892,7 +993,10 @@ def run_one_objective(
                "auc": v4_result["auc"],
                "convergence_iter": v4_result["convergence_iter"]},
         "baseline": {"status": baseline_result["status"], "error": baseline_result["error"], "best_fit": baseline_result["best_fit"], "time_s": baseline_result["time_s"], "iters": baseline_result["iters"]},
-        "winner": winner,
+        "winner": winner_internal,
+        "winner_internal": winner_internal,
+        "winner_overall": winner_overall,
+        "baseline_reference": baseline_reference,
         "selected_grid_metric": cfg.grid_metric if cfg.use_grid_search else None,
         "history_v0": v0_result["history"],
         "history_v1": v1_result["history"],
@@ -905,4 +1009,5 @@ def run_one_objective(
         "iteration_records_v3": v3_result["iteration_records"],
         "iteration_records_v4": v4_result["iteration_records"],
         "plot_path": plot_path,
+        "save_trajectories": cfg.save_trajectories,
     }

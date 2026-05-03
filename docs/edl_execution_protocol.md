@@ -1,197 +1,279 @@
 # EDL Final Execution Protocol
 
-This document defines the recommended workflow for running the **Economic Load
-Dispatch (EDL)** case study in its final form.
+This document explains how the Economic Load Dispatch (EDL) case study is
+executed, what outputs are generated, and how to interpret the checked results
+already obtained in the repository.
 
-The goal is to make the execution easy for a reviewer or professor, especially
-from **VS Code Run and Debug**, while keeping the outputs consistent across all
-delivery cases.
+## 1. Scope
 
-## 1. What This Protocol Covers
-
-The protocol is based on the four EDL datasets:
-
-- `3U` — validation case
-- `6U` — medium constrained case with losses
-- `13U` — large valve-point case
-- `40U` — large scalability case
-
-It uses the same PSO implementations:
+The EDL workflow uses the same shared PSO core as the benchmark suite and
+compares three execution strategies:
 
 - `V0` — sequential
 - `V1` — threading
 - `V2` — multiprocessing
 
-and the same EDL variants:
+Available EDL variants:
 
 - `edl_1` — base
 - `edl_2` — valve-point
 - `edl_3` — losses
 - `edl_4` — valve-point + losses
 
-## 2. Recommended Run and Debug Profiles
+Available datasets:
 
-The simplest way to execute the final workflow is through the predefined
-profiles in `.vscode/launch.json`.
+- `cases/edl_case_3u.json`
+- `cases/edl_case_6u.json`
+- `cases/edl_case_13u.json`
+- `cases/edl_case_40u.json`
 
-### Main profiles for the final delivery
+## 2. Main Goal of the EDL Study
 
-| Purpose | Run and Debug profile |
-|---|---|
-| Validate all four EDL variants on the small case | `EDL: 3U Final Run` |
-| Show the full constrained workflow with losses | `EDL: 6U Final Run` |
-| Show large-case valve-point behaviour | `EDL: 13U Final Run` |
-| Show large-scale behaviour | `EDL: 40U Final Run` |
+The EDL case study is not mainly about achieving the largest speedup. Its role
+in the project is to show that:
 
-### Support profiles
+- the PSO framework works on a constrained engineering problem
+- the same architecture used for the synthetic benchmarks can be reused without
+  changing the optimizer core
+- `V0`, `V1`, and `V2` remain behaviorally consistent on realistic inputs
 
-| Purpose | Run and Debug profile |
-|---|---|
-| Quick validation run on `3U` | `EDL: 3U Validation (quick)` |
-| Quick validation run on `6U` | `EDL: 6U Validation (quick)` |
-| Quick validation run on `13U` | `EDL: 13U Validation (quick)` |
-| Quick validation run on `40U` | `EDL: 40U Validation (quick)` |
-| Choose any case and run all valid variants | `EDL: Custom Case (all valid variants)` |
-| Choose any case and a specific variant | `EDL: Custom Case (single variant)` |
-| Regenerate report figures from saved results | `EDL: Regenerate Reports` |
+So the central success criterion is:
 
-## 3. Final Parameters
+- same or equivalent solution quality across strategies
+- runtime differences explained by execution overhead
 
-The following settings are the recommended final configurations for the
-delivery figures.
+## 3. Recommended Commands
 
-| Case | Variants | Particles | Max iterations | Main objective |
-|---|---|---:|---:|---|
-| `3U` | `edl_1` `edl_2` `edl_3` `edl_4` | `60` | `300` | Validate formulas and all EDL modes |
-| `6U` | `edl_1` `edl_2` `edl_3` `edl_4` | `80` | `400` | Show the full EDL case with losses |
-| `13U` | `edl_1` `edl_2` | `100` | `500` | Show scaling on a large valve-point problem |
-| `40U` | `edl_1` `edl_2` | `120` | `600` | Show high-dimensional scalability |
+Default checked execution:
 
-These settings are already reflected in the predefined `Full + Reports`
-profiles.
+```bash
+python3 -m scripts.run_edl
+python3 -m scripts.analyze_edl
+```
 
-## 4. Expected Outputs
+This produces:
 
-Each execution generates:
+- raw summaries in `results/edl/`
+- aggregate CSVs in `results/edl/<case_name>/comparison.csv`
+- report figures in `reports/edl/`
 
-### Raw outputs
+Examples for explicit cases:
 
-- `results/edl/<case_name>/comparison.csv`
-- `results/edl/<case_name>/<variant>_s<seed>/summary.json`
-- `results/edl/<case_name>/<variant>_s<seed>/history_v*.csv`
+```bash
+python3 -m scripts.run_edl --case cases/edl_case_3u.json
+python3 -m scripts.run_edl --case cases/edl_case_6u.json
+python3 -m scripts.run_edl --case cases/edl_case_13u.json --variant edl_1 edl_2
+python3 -m scripts.run_edl --case cases/edl_case_40u.json --variant edl_1 edl_2
+```
 
-### Final report figures
+## 4. Output Structure
 
-- `reports/edl/<case_name>/seed_<seed>/convergence_overview.png`
-- `reports/edl/<case_name>/seed_<seed>/dispatch_overview.png`
-- `reports/edl/<case_name>/seed_<seed>/summary_dashboard.png`
+For each run:
 
-These three figures are the only figures intended for final presentation.
+```text
+results/edl/<case_name>/<variant>_s<seed>/
+  summary.json
+  history_v0.csv
+  history_v1.csv
+  history_v2.csv
+```
 
-## 5. What Each Figure Shows
+For each case:
 
-### `convergence_overview.png`
+```text
+results/edl/<case_name>/comparison.csv
+reports/edl/<case_name>/
+```
 
-Shows the evolution of the best fitness over the iterations for each EDL
-variant. This is the main figure for explaining **PSO behaviour**.
-
-Use it to show:
-
-- that the PSO converges
-- that the convergence pattern changes with valve-point and/or losses
-- that `V0`, `V1`, and `V2` stay behaviourally consistent
-
-### `dispatch_overview.png`
-
-Shows the final generator outputs selected by the winning method for each
-variant. This is the main figure for explaining the **final solution**.
-
-Use it to show:
-
-- how the optimal dispatch changes between variants
-- how the presence of losses shifts the total generated power upward
-- how the case difficulty changes the resulting power allocation
-
-### `summary_dashboard.png`
-
-Summarises the winning result per variant:
+Main saved information:
 
 - best fitness
-- time
-- losses
+- fuel cost
+- transmission losses
 - balance error
+- iterations
+- runtime breakdown
+- final dispatch vector
 
-Use it to show:
+## 5. Checked Default Results
 
-- the final numerical comparison
-- whether balance error is acceptably small
-- which variant is most expensive or most constrained
+The default execution that was run and verified in the repository is:
 
-## 6. Recommended Presentation Order
+- case: `edl_3u_demo`
+- seed: `42`
+- variants: `edl_1`, `edl_2`, `edl_3`, `edl_4`
 
-If the reviewer runs everything:
+### `edl_1` — Base
 
-1. Run `EDL: 3U Final Run`
-2. Run `EDL: 6U Final Run`
-3. Run `EDL: 13U Final Run`
-4. Run `EDL: 40U Final Run`
+All three strategies converged to the same dispatch:
 
-If time is limited:
+- `[492.0401, 211.8510, 146.1089]`
 
-1. Run `EDL: 3U Final Run`
-2. Run `EDL: 6U Final Run`
-3. Run `EDL: 40U Final Run`
+Final fitness:
 
-This shorter sequence still shows:
+- `8241.606706`
 
-- validation
-- full constrained behaviour
-- scalability
+Times:
 
-## 7. Suggested Figure Selection
+- `V0`: `4.4774s`
+- `V1`: `2.2130s`
+- `V2`: `4.9827s`
 
-For a short explanation or live demo:
+Winner:
 
-- `3U`: `dispatch_overview.png` and `summary_dashboard.png`
-- `6U`: `dispatch_overview.png` and `summary_dashboard.png`
-- `40U`: `convergence_overview.png` and `dispatch_overview.png`
+- `V1 Threading`
 
-For a written report:
+Interpretation:
 
-- include all three figures for `3U`
-- include all three figures for `6U`
-- include `convergence_overview.png` and `summary_dashboard.png` for `13U`
-- include `convergence_overview.png` and `dispatch_overview.png` for `40U`
+- same engineering solution
+- the difference is execution overhead only
 
-## 8. Terminal Equivalents
+### `edl_2` — Valve-point
 
-If needed, the `Run and Debug` profiles correspond to these commands:
+Same dispatch across methods:
+
+- `[492.8413, 207.8316, 149.3271]`
+
+Final fitness:
+
+- `8502.280355`
+
+Times:
+
+- `V0`: `6.9076s`
+- `V1`: `5.4923s`
+- `V2`: `9.5009s`
+
+Winner:
+
+- `V1 Threading`
+
+Interpretation:
+
+- valve-point effects increase difficulty and runtime
+- `V2` pays the largest overhead
+
+### `edl_3` — Losses
+
+Same dispatch across methods:
+
+- `[474.9884, 285.9617, 134.2429]`
+
+Final fitness:
+
+- `8623.535676`
+
+Transmission losses:
+
+- `45.192955`
+
+Times:
+
+- `V0`: `3.8272s`
+- `V1`: `3.9381s`
+- `V2`: `4.8263s`
+
+Winner:
+
+- `V0 Sequential`
+
+Interpretation:
+
+- once losses are included, sequential execution can remain competitive
+- no strategy changed the final engineering solution
+
+### `edl_4` — Valve-point + Losses
+
+Same dispatch across methods:
+
+- `[486.6277, 272.0889, 137.5926]`
+
+Final fitness:
+
+- `9019.668565`
+
+Transmission losses:
+
+- `46.309288`
+
+Times:
+
+- `V0`: `3.8603s`
+- `V1`: `4.2946s`
+- `V2`: `4.0734s`
+
+Winner:
+
+- `V0 Sequential`
+
+Interpretation:
+
+- this is the most constrained checked `3U` variant
+- the shared core still remains consistent across execution modes
+
+## 6. What the Checked EDL Results Mean
+
+The default checked execution supports three important claims:
+
+1. The architecture is reusable.
+   The same optimizer core works for synthetic benchmarks and for EDL.
+
+2. The strategies remain comparable.
+   In the checked runs, `V0`, `V1`, and `V2` produced the same dispatch vector
+   and the same final fitness per variant.
+
+3. Speedup is not the only metric that matters.
+   The main scientific value here is consistency of the final engineering
+   result, not just raw runtime.
+
+## 7. Presentation Guidance
+
+For the report or demo, the EDL section should emphasize:
+
+- generator bounds are respected
+- power-balance error is very small
+- losses change the dispatch and the final objective
+- valve-point effects increase difficulty
+- execution strategies do not change the optimal dispatch in the checked runs
+
+That is a strong argument for the maintainability of the architecture.
+
+## 8. Recommended Figures
+
+After running:
 
 ```bash
-python3 -m scripts.run_edl --case cases/edl_case_3u.json --seed 42 --n-particles 60 --max-iters 300
-python3 -m scripts.run_edl --case cases/edl_case_6u.json --seed 42 --n-particles 80 --max-iters 400
-python3 -m scripts.run_edl --case cases/edl_case_13u.json --variant edl_1 edl_2 --seed 42 --n-particles 100 --max-iters 500
-python3 -m scripts.run_edl --case cases/edl_case_40u.json --variant edl_1 edl_2 --seed 42 --n-particles 120 --max-iters 600
+python3 -m scripts.analyze_edl
 ```
 
-To regenerate figures from already saved results:
+Use:
 
-```bash
-python3 -m scripts.analyze_edl --case edl_3u_demo --seed 42
-python3 -m scripts.analyze_edl --case edl_6u_vpe_losses --seed 42
-python3 -m scripts.analyze_edl --case edl_13u_vpe --seed 42
-python3 -m scripts.analyze_edl --case edl_40u_vpe --seed 42
-```
+- `convergence_overview.png` to discuss optimizer behavior
+- `dispatch_overview.png` to discuss final power allocation
+- `summary_dashboard.png` to discuss fitness, losses, and balance error
 
-## 9. Acceptance Criteria
+These figures are enough for a short presentation and also fit naturally inside
+the written report.
 
-The execution can be considered correct when:
+## 9. Validity Notes
 
-- the EDL table is produced for every valid variant
-- `comparison.csv` is saved under `results/edl/<case_name>/`
-- exactly three report figures appear under `reports/edl/<case_name>/seed_<seed>/`
-- balance error is small in the saved summaries
-- the `13U` and `40U` cases only run `edl_1` and `edl_2`
+Not every dataset supports every EDL variant.
 
-This protocol is the intended final workflow for validating and presenting the
-EDL case study.
+Examples:
+
+- cases without a loss model should not run `edl_3` or `edl_4`
+- this is expected behavior, not a failure
+
+The implementation correctly marks unsupported combinations as unavailable.
+
+## 10. Final Conclusion
+
+The EDL workflow validates the project beyond toy benchmarks:
+
+- it reuses the same PSO core
+- it preserves strategy comparability
+- it produces stable engineering outputs
+- it demonstrates that the framework is maintainable and extensible
+
+For this project, EDL is the strongest practical evidence that the software
+design decisions were correct.

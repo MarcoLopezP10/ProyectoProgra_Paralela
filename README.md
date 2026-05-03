@@ -1,9 +1,11 @@
 # AUTHOR - MARCO LOPEZ PRIETO
 # PSO — Particle Swarm Optimization
 
-A maintainable Python implementation of Particle Swarm Optimization (PSO) used as a controlled testbed for comparing multiple execution strategies under the same algorithmic conditions.
+Maintainable Python implementation of Particle Swarm Optimization (PSO) used as
+a controlled testbed for comparing multiple execution strategies under the same
+algorithmic conditions.
 
-Current implemented scope:
+Implemented strategies:
 
 - `V0`: sequential baseline
 - `V1`: threading with `ThreadPoolExecutor`
@@ -11,152 +13,37 @@ Current implemented scope:
 - `V3`: `asyncio`-based cooperative concurrency
 - `V4`: NumPy-vectorized evaluation and update for supported numerical objectives
 
-Project documents:
+The core idea of the repository is simple: there is one PSO algorithm and
+several interchangeable execution strategies. The optimizer logic, seed,
+topology, bounds policy, and stopping criteria stay fixed. Only the execution
+path changes.
 
-- Design notes: `docs/design.md`
-- Final report: `docs/final_report.md`
-- Internal explanation of versions/results: `docs/v_comparison_and_results.md`
-- EDL case ladder and technical notes: `cases/README.md`
-- EDL execution protocol: `docs/edl_execution_protocol.md`
-
----
-
-## Table of Contents
-
-1. [Project Overview](#1-project-overview)
-2. [Version Summary](#2-version-summary)
-3. [Project Structure](#3-project-structure)
-4. [Architecture](#4-architecture)
-5. [Installation](#5-installation)
-6. [Usage](#6-usage)
-7. [Experimental Highlights](#7-experimental-highlights)
-8. [EDL Workflow](#8-edl-workflow)
-9. [Reproducibility](#9-reproducibility)
-
----
-
-## 1. Project Overview
-
-This project implements the canonical PSO algorithm for continuous optimization and compares several ways of executing the expensive parts of the workflow.
-
-The important point is that the project does **not** compare unrelated optimizers. It compares different execution strategies for the same PSO family.
-
-Shared across versions:
-
-- same swarm structure
-- same velocity/position update equations
-- same topology
-- same bounds policy
-- same stopping criteria
-- same seed-based initialization
-
-Different across versions:
-
-- how evaluations are scheduled or computed
-- for `V4`, how the numerical update path is executed internally
-
-This makes the benchmark results fair and interpretable.
-
-### Applied use case: Economic Load Dispatch
-
-Beyond synthetic benchmarks, the repository includes an applied engineering workflow for **Economic Load Dispatch (EDL)**.
-
-In EDL, PSO searches for the best generation vector subject to:
-
-- generator lower and upper bounds
-- power-balance constraints
-- optional transmission losses
-- optional valve-point effects
-
-The EDL workflow currently compares `V0`, `V1`, and `V2` on realistic constrained cases.
-
----
-
-## 2. Version Summary
-
-| Version | Strategy | What it is good for |
-|---|---|---|
-| `V0` | Sequential | correctness baseline, low-overhead reference |
-| `V1` | Threading | concurrency baseline, sometimes useful when evaluations can overlap waiting |
-| `V2` | Multiprocessing | true parallel baseline outside the GIL, but often limited by IPC overhead |
-| `V3` | Asyncio | latency-aware or cooperative-concurrency objectives such as `latency_mix` |
-| `V4` | NumPy vectorized | structured numerical workloads where Python loop overhead dominates |
-
-Quick interpretation:
-
-- `V3` is the best strategy for latency-shaped workloads.
-- `V4` is the best strategy for large vectorizable numerical workloads.
-
----
-
-## 3. Project Structure
+## 1. Repository Layout
 
 ```text
 PRACTICA-2.2/
 ├── core/                 # Particle, swarm, PSO loop
-├── options/              # Abstract strategy interfaces
-├── parallel/             # V1/V2/V3/V4 evaluators
-├── objectives/           # Benchmark and EDL objectives
-├── experiment/           # Single runs, grid search, EDL orchestration
-├── baseline/             # PySwarm wrapper
-├── utils/                # IO, logging, metadata, method metadata
-├── viz/                  # Convergence and EDL figures
+├── options/              # Bounds, topology, evaluator interfaces
+├── parallel/             # V1-V4 evaluator implementations
+├── objectives/           # Benchmarks + Economic Load Dispatch objective
+├── experiment/           # Single runs, benchmark suite, grid search, EDL runs
+├── utils/                # Persistence, metadata, logging
+├── viz/                  # Convergence and animation utilities
 ├── scripts/              # CLI entry points
-├── tests/                # Unit/integration tests
+├── tests/                # Unit and integration tests
+├── docs/                 # Design notes, report, execution protocols
 ├── cases/                # EDL datasets
-├── docs/                 # Design, report, internal explanations
-├── results/              # Raw saved outputs
-├── reports/              # Generated analysis/EDL figures
-└── logs/                 # Logs and convergence plots
+├── results/              # Saved experiment outputs
+└── reports/              # Generated plots and summaries
 ```
 
----
+Main documents:
 
-## 4. Architecture
+- Design notes: `docs/design.md`
+- Final report: `docs/final_report.md`
+- EDL execution protocol: `docs/edl_execution_protocol.md`
 
-The optimizer core is evaluator-agnostic.
-
-Main abstractions:
-
-- `FitnessEvaluator`
-- `BoundsPolicy`
-- `Topology`
-
-At a high level:
-
-```text
-scripts/ -> experiment/ -> core/
-                      -> options/
-                      -> parallel/
-                      -> objectives/
-                      -> utils/ + viz/
-```
-
-### Why this matters
-
-This design allows the project to compare `V0`-`V4` without rewriting the optimizer every time.
-
-`V4` required only a minimal extension of the evaluator interface:
-
-- classic path: `evaluate(positions)`
-- optimized path: optional `step(...)` hook
-
-That hook lets `V4` run a full vectorized PSO step while leaving the common core intact.
-
-### Supported `V4` fast-path objectives
-
-The vectorized `V4` path supports:
-
-- `sphere`
-- `ackley`
-- `rastrigin`
-- `rosenbrock`
-
-If an objective is unsupported, `V4` falls back safely instead of pretending to vectorize everything.
-
----
-
-## 5. Installation
+## 2. Installation
 
 ```bash
 git clone <repo-url>
@@ -164,31 +51,59 @@ cd PRACTICA-2.2
 pip install -e ".[dev]"
 ```
 
-Python `3.10+` is recommended.
+Recommended Python version: `3.10+`
 
-If you only want the core runs, a lighter environment also works as long as the required runtime dependencies are installed.
+## 3. Main Features
 
----
+- Canonical PSO for continuous minimization in `R^d`
+- Arbitrary dimensionality
+- Explicit box-constraint handling through `ClampBounds`
+- Reproducibility through explicit seeds
+- Shared timing instrumentation:
+  - total time
+  - evaluation time
+  - update time
+  - overhead
+- Structured persistence:
+  - `summary.json`
+  - `history_v*.csv`
+  - `trajectory_v*.npz`
+- 2-D and 3-D visualizations from persisted trajectories
+- Grid search over `(w, c1, c2, n_particles)`
+- Applied case study: Economic Load Dispatch (EDL)
 
-## 6. Usage
+## 4. Objectives
 
-All main workflows are exposed as scripts under `scripts/`.
+Numerical benchmarks:
 
-### Single PSO run
+- `sphere`
+- `ackley`
+- `rosenbrock`
+- `rastrigin`
+
+Latency-shaped objective:
+
+- `latency_mix`
+
+Applied engineering objective:
+
+- `economic_dispatch`
+
+## 5. Usage
+
+### Single run
 
 ```bash
 python3 -m scripts.run_pso
 python3 -m scripts.run_pso --objective sphere --dim 30 --seed 7
 python3 -m scripts.run_pso --objective latency_mix --dim 10 --seed 7 --n-particles 40 --max-iters 60
-python3 -m scripts.run_pso --objective sphere --dim 2 --seed 7 --n-particles 8 --max-iters 20 --no-save
 ```
 
 ### Benchmark suite
 
 ```bash
 python3 -m scripts.run_benchmarks
-python3 -m scripts.run_benchmarks --objective sphere --dims 2 10 30 --seeds 42 7
-python3 -m scripts.run_benchmarks --objective sphere --dims 2 --seeds 7 --summary-csv results/v4_check.csv
+python3 -m scripts.run_benchmarks --objective sphere ackley rosenbrock rastrigin --dims 2 10 30 --seeds 0 1 7 42 123 --report-ready --suite-name final_protocol_check
 ```
 
 ### Grid search
@@ -203,7 +118,21 @@ python3 -m scripts.run_grid_search --objective latency_mix --dims 2 --strategy v
 
 ```bash
 python3 -m scripts.analyze_results
-python3 -m scripts.analyze_results --results-dir results/runs --out-dir reports/analysis_v4_check
+python3 -m scripts.analyze_results --results-dir results/benchmark_suites/final_protocol_check/runs --out-dir reports/analysis_final_protocol
+```
+
+### Visualizations
+
+```bash
+python3 -m scripts.make_viz --objective sphere --dim 2 --seed 7 --strategy v0
+python3 -m scripts.make_viz --objective ackley --dim 3 --seed 7 --strategy v0
+```
+
+### EDL workflow
+
+```bash
+python3 -m scripts.run_edl
+python3 -m scripts.analyze_edl
 ```
 
 ### Tests
@@ -212,146 +141,158 @@ python3 -m scripts.analyze_results --results-dir results/runs --out-dir reports/
 python3 -m pytest -q
 ```
 
-### Common `run_pso` objectives
+## 6. Persistence Format
 
-Current objective choices include:
+Each benchmark run is stored under:
 
-- `sphere`
-- `ackley`
-- `rosenbrock`
-- `rastrigin`
-- `latency_mix`
-
-### Recommended validation commands
-
-These are good smoke tests for the current project state:
-
-```bash
-python3 -m scripts.run_pso --objective sphere --dim 30 --seed 7 --n-particles 60 --max-iters 120 --no-save
-python3 -m scripts.run_pso --objective ackley --dim 30 --seed 7 --n-particles 60 --max-iters 120 --no-save
-python3 -m scripts.run_pso --objective rastrigin --dim 30 --seed 7 --n-particles 60 --max-iters 120 --no-save
-python3 -m scripts.run_pso --objective latency_mix --dim 10 --seed 7 --n-particles 40 --max-iters 60 --no-save
+```text
+results/runs/<objective>_d<dim>_s<seed>/
+  summary.json
+  history_v0.csv
+  history_v1.csv
+  history_v2.csv
+  history_v3.csv
+  history_v4.csv
+  trajectory_v0.npz
+  trajectory_v1.npz
+  trajectory_v2.npz
+  trajectory_v3.npz
+  trajectory_v4.npz
 ```
 
----
+Important saved fields:
 
-## 7. Experimental Highlights
+- `winner_internal`: best method among `V0`-`V4`
+- `winner_overall`: best method if the external PySwarm baseline is included
+- `baseline_reference`: textual comparison between the external baseline and the
+  best internal result
 
-Representative outcomes from the final implementation:
+The animation tool now reads `trajectory_v*.npz` directly, so the visualized
+swarm path corresponds to the real stored execution instead of a fresh rerun.
 
-### `sphere`, `d=30`
+## 7. Final Benchmark Protocol
 
-- `V0`: `0.3971s`
-- `V4`: `0.0803s`
-- `V4` speedup vs `V0`: `4.948x`
-- same final fitness across `V0`-`V4`
+Final benchmark suite used for the report:
 
-Meaning:
+- objectives: `sphere`, `ackley`, `rosenbrock`, `rastrigin`
+- dimensions: `2`, `10`, `30`
+- seeds: `0`, `1`, `7`, `42`, `123`
+- total runs: `4 x 3 x 5 = 60`
 
-- vectorization clearly wins on larger numerical workloads
-
-### `ackley`, `d=30`
-
-- `V0`: `0.6678s`
-- `V4`: `0.0913s`
-- `V4` speedup vs `V0`: `7.312x`
-- same final fitness across `V0`-`V4`
-
-Meaning:
-
-- `V4` is not only good for trivial functions such as `sphere`
-
-### `rastrigin`, `d=30`
-
-- `V0`: `1.2815s`
-- `V4`: `0.1064s`
-- `V4` speedup vs `V0`: `12.040x`
-- same final fitness across `V0`-`V4`
-
-Meaning:
-
-- even on a difficult multimodal landscape, the arithmetic structure still strongly favors `V4`
-
-### `latency_mix`, `d=10`
-
-- `V0`: `6.8641s`
-- `V3`: `0.4815s`
-- `V3` speedup vs `V0`: `14.255x`
-- `V4`: `7.0432s`
-
-Meaning:
-
-- `V3` is the right answer for latency-aware objectives
-- `V4` is not meant to dominate there, and it does not
-
-### Main takeaway
-
-- `V4` wins when the bottleneck is numerical computation in Python loops.
-- `V3` wins when the bottleneck is waiting/latency.
-
-That is the clearest summary of the project.
-
----
-
-## 8. EDL Workflow
-
-The EDL path is intentionally separate from the synthetic benchmark path.
-
-### Main commands
+The complete suite was executed with:
 
 ```bash
-python3 -m scripts.run_edl --case cases/edl_case_3u.json --seed 42
-python3 -m scripts.run_edl --case cases/edl_case_6u.json --variant edl_3 edl_4 --seed 42
-python3 -m scripts.run_edl --case cases/edl_case_40u.json --variant edl_1 edl_2 --seed 7 --n-particles 100 --max-iters 300 --no-save --no-plots
-python3 -m scripts.analyze_edl --case edl_3u_demo --seed 42
+python3 -m scripts.run_benchmarks \
+  --objective sphere ackley rosenbrock rastrigin \
+  --dims 2 10 30 \
+  --seeds 0 1 7 42 123 \
+  --report-ready \
+  --suite-name final_protocol_check
 ```
 
-### Important compatibility note
+Saved artifacts:
 
-Not every EDL case supports every EDL variant.
+- raw summaries: `results/benchmark_suites/final_protocol_check/runs/`
+- benchmark CSV: `results/benchmark_suites/final_protocol_check/benchmark_summary.csv`
+- suite manifest: `results/benchmark_suites/final_protocol_check/suite_manifest.json`
+- aggregated plots: `reports/analysis_final_protocol/`
 
-Example:
+## 8. Experimental Highlights
 
-- `edl_case_40u.json` supports `edl_1` and `edl_2`
-- it does **not** support `edl_4`, because the case does not include a transmission-loss model
+The aggregate summary in `reports/analysis_final_protocol/analysis_summary.csv`
+shows a very consistent pattern.
 
-If you run an incompatible case/variant combination, the project marks it as `unavailable` instead of producing invalid results.
+### Numerical workloads
 
-### What EDL demonstrates
+`V4` is the strongest strategy on medium and large numerical benchmarks.
 
-EDL is useful because it proves that the PSO framework also works on:
+Representative mean speedups vs `V0`:
 
-- constrained objectives
-- applied optimization cases
-- domain-aware workflows where data compatibility matters
+- `sphere d=30`: `3.86x`
+- `ackley d=30`: `7.85x`
+- `rosenbrock d=10`: `6.31x`
+- `rosenbrock d=30`: `5.47x`
+- `rastrigin d=10`: `6.01x`
+- `rastrigin d=30`: `5.99x`
 
-Representative `40u` observations:
+Interpretation:
 
-- `edl_1`: same best fitness and same dispatch across `V0`, `V1`, `V2`
-- `edl_2`: same best fitness and same dispatch across `V0`, `V1`, `V2`
-- `V2` is again typically the slowest because of process overhead
+- vectorization consistently reduces Python-loop overhead
+- the gain grows with arithmetic intensity and swarm size
+- the same final fitness is preserved across `V0`-`V4`
 
----
+### Threads and asyncio on numerical workloads
 
-## 9. Reproducibility
+`V1` and `V3` are not consistent winners for numerical benchmarks.
 
-The project is reproducible by design:
+Typical aggregate behavior:
 
-- runs take explicit seeds
-- summaries persist configuration and timing
-- the optimizer can rerun from the same initial swarm state
-- test coverage verifies equivalence across strategies
+- `V1` stays near `V0` or slightly worse
+- `V3` is sometimes slightly faster than `V0`
+- `V2` is unstable because process overhead is expensive unless the workload is
+  sufficiently heavy
 
-Typical reproducibility checks:
+This is expected and supports the main discussion of GIL, scheduling overhead,
+and IPC cost.
+
+### External PySwarm baseline
+
+The project still records PySwarm as an external reference, but the internal
+winner is tracked separately. This avoids mixing an external implementation with
+the internal PSO family when discussing fairness.
+
+Examples from the final suite:
+
+- on `sphere`, internal `V4` clearly wins and PySwarm usually lags behind
+- on `ackley d=30`, PySwarm sometimes reaches lower fitness than the internal
+  family, even though the internal family is methodologically comparable among
+  itself
+- on `rastrigin d=10`, PySwarm can occasionally obtain a lower final fitness,
+  which is reported as an external reference rather than an internal winner
+
+### Latency-shaped workloads
+
+For `latency_mix`, concurrency becomes meaningful:
+
+- `V1` and `V3` can outperform `V0`
+- `V4` does not dominate, because the bottleneck is not arithmetic structure
+
+That distinction is important: the repository does not claim that one technique
+wins everywhere. It shows that the best execution strategy depends on workload
+type.
+
+## 9. Economic Load Dispatch
+
+The repository also includes an applied PSO workflow for Economic Load Dispatch.
+
+Validated default run:
 
 ```bash
-python3 -m pytest -q
-python3 -m scripts.run_pso --objective sphere --dim 2 --seed 7 --n-particles 8 --max-iters 20 --no-save
-python3 -m scripts.run_benchmarks --objective sphere --dims 2 --seeds 7 --summary-csv results/check.csv
+python3 -m scripts.run_edl
+python3 -m scripts.analyze_edl
 ```
 
-For a deeper explanation of the versions and why the results behave the way they do, see:
+Observed on the default `3U` case with seed `42`:
 
-- `docs/v_comparison_and_results.md`
-- `docs/design.md`
-- `docs/final_report.md`
+- all three methods (`V0`, `V1`, `V2`) converged to the same dispatch vector in
+  the valid variants
+- the winner changed only by wall-clock time, not by solution quality
+- `V1` won the base and valve-point variants
+- `V0` won the variants with losses in the default checked execution
+
+This is good evidence that the shared core remains behaviorally consistent in a
+real constrained engineering problem.
+
+## 10. Current Conclusions
+
+The repository supports the following claims:
+
+- one shared PSO core can support multiple execution strategies without changing
+  optimization behavior
+- `V4` is the recommended strategy for structured numerical workloads
+- `V1` and `V3` only become compelling when there is waiting or latency to
+  overlap
+- `V2` is scientifically useful as a multiprocessing baseline, but often pays
+  too much overhead on these benchmark sizes
+- the EDL case study confirms that the framework is not limited to toy
+  benchmarks

@@ -17,7 +17,10 @@ import numpy as np
 class SwarmRecorder:
     """Collect swarm snapshots during a PSO run."""
 
-    def __init__(self) -> None:
+    def __init__(self, stride: int = 1) -> None:
+        if stride < 1:
+            raise ValueError("stride must be >= 1")
+        self.stride = int(stride)
         self.iteration_numbers: List[int] = []
         self.positions: List[np.ndarray] = []
         self.global_bests: List[np.ndarray] = []
@@ -41,6 +44,20 @@ class SwarmRecorder:
 
     def callback(self, iteration: int, swarm, iteration_metrics: dict[str, float]) -> None:
         """PSO callback used to record the real run without duplicating the loop."""
+        if iteration % self.stride != 0:
+            return
+        self.record(
+            iteration=iteration,
+            positions=swarm.get_positions(),
+            global_best_position=swarm.global_best_position,
+            global_best_fitness=swarm.global_best_fitness,
+            iteration_metrics=iteration_metrics,
+        )
+
+    def ensure_final_state(self, swarm, iteration: int, iteration_metrics: dict[str, float]) -> None:
+        """Append the final state when sampling skipped the last iteration."""
+        if self.iteration_numbers and self.iteration_numbers[-1] == int(iteration):
+            return
         self.record(
             iteration=iteration,
             positions=swarm.get_positions(),
@@ -55,6 +72,43 @@ class SwarmRecorder:
     @property
     def dimension(self) -> int:
         return int(self.positions[0].shape[1]) if self.positions else 0
+
+
+def recorder_from_trajectory(payload: dict[str, np.ndarray]) -> SwarmRecorder:
+    """Rebuild a recorder view from a persisted trajectory archive."""
+    recorder = SwarmRecorder()
+    iteration_numbers = payload.get("iteration_numbers", np.empty((0,), dtype=int))
+    positions = payload.get("positions", np.empty((0, 0, 0), dtype=float))
+    global_bests = payload.get("global_bests", np.empty((0, 0), dtype=float))
+    fitness_history = payload.get("fitness_history", np.empty((0,), dtype=float))
+
+    eval_s = payload.get("eval_s", np.empty((0,), dtype=float))
+    update_s = payload.get("update_s", np.empty((0,), dtype=float))
+    overhead_s = payload.get("overhead_s", np.empty((0,), dtype=float))
+    iter_s = payload.get("iter_s", np.empty((0,), dtype=float))
+    stall_count = payload.get("stall_count", np.empty((0,), dtype=float))
+
+    n_frames = min(
+        len(iteration_numbers),
+        len(positions),
+        len(global_bests),
+        len(fitness_history),
+    )
+    for idx in range(n_frames):
+        recorder.record(
+            iteration=int(iteration_numbers[idx]),
+            positions=np.asarray(positions[idx], dtype=float),
+            global_best_position=np.asarray(global_bests[idx], dtype=float),
+            global_best_fitness=float(fitness_history[idx]),
+            iteration_metrics={
+                "eval_s": float(eval_s[idx]) if idx < len(eval_s) else 0.0,
+                "update_s": float(update_s[idx]) if idx < len(update_s) else 0.0,
+                "overhead_s": float(overhead_s[idx]) if idx < len(overhead_s) else 0.0,
+                "iter_s": float(iter_s[idx]) if idx < len(iter_s) else 0.0,
+                "stall_count": float(stall_count[idx]) if idx < len(stall_count) else 0.0,
+            },
+        )
+    return recorder
 
 
 def _make_contour_grid(

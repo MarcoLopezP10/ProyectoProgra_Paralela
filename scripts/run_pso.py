@@ -118,6 +118,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--plots-dir", default="logs/convergence",  help="Plots directory.")
     p.add_argument("--log-dir",   default="logs",              help="Log directory.")
     p.add_argument("--no-save",   action="store_true",         help="Skip saving files.")
+    p.add_argument("--no-save-trajectories", action="store_true",
+                   help="Skip saving trajectory archives used by make_viz.")
+    p.add_argument("--trajectory-stride", type=int, default=1,
+                   help="Sampling stride when persisting swarm trajectories.")
 
     return p.parse_args(argv)
 
@@ -160,6 +164,8 @@ def main(argv=None) -> None:
                     log_dir=args.log_dir,
                     repo_root=".",
                     save_files=not args.no_save,
+                    save_trajectories=not args.no_save_trajectories,
+                    trajectory_stride=args.trajectory_stride,
                 )
 
                 print(f"\n{'='*60}")
