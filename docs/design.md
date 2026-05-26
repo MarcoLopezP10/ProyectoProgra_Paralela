@@ -137,6 +137,7 @@ Current implementation:
 Reason:
 
 - keeps the implementation canonical
+- exactly matches the minimum topology required by the assignment (`global-best`)
 - preserves a clean extension point for local-best/ring variants
 - allows `V4` to explicitly check whether the active topology is compatible
   with the vectorized fast path

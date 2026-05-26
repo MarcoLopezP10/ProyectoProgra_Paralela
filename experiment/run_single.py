@@ -280,7 +280,7 @@ def _format_speedup(reference_time: float, method_time: Optional[float]) -> str:
 
 def _print_table(
     name: str, dim: int, seed: int,
-    w: float, c1: float, c2: float, n_particles: int,
+    w: float, c1: float, c2: float, n_particles: int, max_iters: int,
     v0_fit: float, v0_iters: int, v0_time: float,
     v0_pct_eval: float, v0_pct_update: float, v0_conv_iter: int,
     v1_fit: float, v1_iters: int, v1_time: float,
@@ -315,6 +315,7 @@ def _print_table(
         ["c1", f"{c1:.3f}"],
         ["c2", f"{c2:.3f}"],
         ["n_particles", n_particles],
+        ["max_iters", max_iters],
         ["thread_max_workers", thread_max_workers or "default"],
         ["process_max_workers", process_max_workers or "default"],
         ["batch_size", batch_size or "auto"],
@@ -598,6 +599,7 @@ def run_one_objective(
         )
         w, c1, c2 = float(best["w"]), float(best["c1"]), float(best["c2"])
         n_particles = int(best["n_particles"])
+        cfg.max_iters = int(best["max_iters"])
         hyperparam_source = "grid_search"
     else:
         w = float(resolved["w"])
@@ -796,7 +798,7 @@ def run_one_objective(
     # ── 10. Console table ─────────────────────────────────────────────
     _print_table(
         name=name, dim=cfg.dim, seed=cfg.seed,
-        w=w, c1=c1, c2=c2, n_particles=n_particles,
+        w=w, c1=c1, c2=c2, n_particles=n_particles, max_iters=cfg.max_iters,
         v0_fit=float(v0_result["best_fit"]), v0_iters=int(v0_result["iters"]), v0_time=float(v0_result["time_s"]),
         v0_pct_eval=v0_result["timing"]["pct_eval"], v0_pct_update=v0_result["timing"]["pct_update"],
         v0_conv_iter=int(v0_result["convergence_iter"]),
@@ -969,7 +971,13 @@ def run_one_objective(
         "objective": name,
         "dim": cfg.dim,
         "seed": cfg.seed,
-        "hyperparams": {"w": w, "c1": c1, "c2": c2, "n_particles": n_particles},
+        "hyperparams": {
+            "w": w,
+            "c1": c1,
+            "c2": c2,
+            "n_particles": n_particles,
+            "max_iters": cfg.max_iters,
+        },
         "v0": {"status": v0_result["status"], "error": v0_result["error"], "best_pos": v0_result["best_pos"], "best_fit": v0_result["best_fit"],
                "time_s": v0_result["time_s"], "iters": v0_result["iters"], "timing": v0_result["timing"],
                "auc": v0_result["auc"],

@@ -2,9 +2,8 @@
 
 Dedicated script for the hyperparameter grid search.
 
-Runs a 3×3×3 grid over (w, c1, c2) with 5 seeds per combination
-for each objective function and dimension, as required by the
-project specification.
+Runs a configurable grid over `(w, c1, c2, n_particles, max_iters)` with 5
+seeds per combination for each objective function and dimension.
 
 Usage examples
 --------------
@@ -30,7 +29,7 @@ python -m scripts.run_grid_search --objective latency_mix --strategy v3 --metric
 python -m scripts.run_grid_search --objective sphere --strategy v4 --metric time_s
 
 # Quick test run
-python -m scripts.run_grid_search --dims 2 --seeds 42 7 --max-iters 100
+python -m scripts.run_grid_search --dims 2 --seeds 42 7 --grid-max-iters 100
 """
 
 from __future__ import annotations
@@ -91,7 +90,7 @@ def parse_args(argv=None) -> argparse.Namespace:
                    default="final_fitness",
                    help="Metric minimized to select the best hyperparameters.")
 
-    # Grid definition (3×3×3 default)
+    # Grid definition
     p.add_argument("--w",  nargs="+", type=float, default=None,
                    help="Inertia weight values to try.")
     p.add_argument("--c1", nargs="+", type=float, default=None,
@@ -100,11 +99,13 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="Social coefficient values to try.")
     p.add_argument("--n-particles", nargs="+", type=int, default=None,
                    help="Swarm size(s) to include in the grid.")
+    p.add_argument("--grid-max-iters", nargs="+", type=int, default=None,
+                   help="Iteration budgets to include in the grid search.")
 
     p.add_argument("--bounds-lo", type=float, default=-5.0)
     p.add_argument("--bounds-hi", type=float, default=5.0)
     p.add_argument("--max-iters", type=int,   default=150,
-                   help="Iterations per combination (kept low for speed).")
+                   help="Fallback iteration budget used when --grid-max-iters is omitted.")
     p.add_argument("--tol",       type=float, default=1e-8)
     p.add_argument("--patience",  type=int,   default=40)
     p.add_argument("--vmax-ratio", type=float, default=None,
@@ -140,9 +141,21 @@ def main(argv=None) -> None:
             c1_values = args.c1 if args.c1 is not None else profile["c1_values"]
             c2_values = args.c2 if args.c2 is not None else profile["c2_values"]
             n_values = args.n_particles if args.n_particles is not None else profile["n_particles_values"]
-            combo_counts.append(len(w_values) * len(c1_values) * len(c2_values) * len(n_values))
+            max_iters_values = (
+                args.grid_max_iters
+                if args.grid_max_iters is not None
+                else profile["max_iters_values"]
+            )
+            combo_counts.append(
+                len(w_values)
+                * len(c1_values)
+                * len(c2_values)
+                * len(n_values)
+                * len(max_iters_values)
+            )
             combo_labels.append(
-                f"{len(w_values)}x{len(c1_values)}x{len(c2_values)}x{len(n_values)}"
+                f"{len(w_values)}x{len(c1_values)}x{len(c2_values)}x"
+                f"{len(n_values)}x{len(max_iters_values)}"
             )
 
     n_combos = max(combo_counts) if combo_counts else 0
@@ -157,7 +170,10 @@ def main(argv=None) -> None:
     print(f"  Grid    : {combo_label} combinations/profile (max {n_combos})")
     print(f"  Seeds   : {args.seeds}  ({len(args.seeds)} per combination)")
     print(f"  Runs    : {total_runs} total")
-    print(f"  Budget  : {args.max_iters} iters/run\n")
+    if args.grid_max_iters is not None:
+        print(f"  Iters   : {args.grid_max_iters}\n")
+    else:
+        print("  Iters   : profile-dependent grid\n")
 
     suite_start = time.perf_counter()
 
@@ -170,6 +186,11 @@ def main(argv=None) -> None:
             c1_values = args.c1 if args.c1 is not None else profile["c1_values"]
             c2_values = args.c2 if args.c2 is not None else profile["c2_values"]
             n_values = args.n_particles if args.n_particles is not None else profile["n_particles_values"]
+            max_iters_values = (
+                args.grid_max_iters
+                if args.grid_max_iters is not None
+                else profile["max_iters_values"]
+            )
 
             print(f"{'─'*55}")
             print(f"  {obj_name.upper()}  d={dim}")
@@ -184,6 +205,7 @@ def main(argv=None) -> None:
                 c1_values=c1_values,
                 c2_values=c2_values,
                 n_particles_values=n_values,
+                max_iters_values=max_iters_values,
                 seeds=args.seeds,
                 max_iters=args.max_iters,
                 tol=args.tol,
@@ -199,18 +221,19 @@ def main(argv=None) -> None:
 
             # ── Print top-5 results ───────────────────────────────────
             print(f"\n  Top 5 combinations ({obj_name} d={dim}):")
-            print(f"  {'w':>5} {'c1':>5} {'c2':>5} {'n':>5} "
+            print(f"  {'w':>5} {'c1':>5} {'c2':>5} {'n':>5} {'iters':>7} "
                   f"{'mean_metric':>14} {'mean_fit':>14} {'mean_t':>10}")
             print(f"  {'-'*55}")
             for row in all_results[:5]:
                 print(
                     f"  {row['w']:>5.2f} {row['c1']:>5.2f} {row['c2']:>5.2f} "
-                    f"{row['n_particles']:>5d} "
+                    f"{row['n_particles']:>5d} {row['max_iters']:>7d} "
                     f"{row['mean_metric']:>14.4e} {row['mean_fitness']:>14.4e} "
                     f"{row['mean_time_s']:>10.4f}"
                 )
             print(f"\n  Best → w={best_params['w']} c1={best_params['c1']} "
                   f"c2={best_params['c2']} n={best_params['n_particles']} "
+                  f"iters={best_params['max_iters']} "
                   f"metric={best_params['mean_metric']:.4e} "
                   f"fit={best_params['mean_fitness']:.4e} "
                   f"auc={best_params['mean_auc']:.4e} "

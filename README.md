@@ -18,6 +18,11 @@ several interchangeable execution strategies. The optimizer logic, seed,
 topology, bounds policy, and stopping criteria stay fixed. Only the execution
 path changes.
 
+The repository intentionally keeps the canonical `global-best` topology as the
+minimum neighbourhood policy required by the assignment. That choice is
+documented and isolated behind `options/topology.py`, so local-best variants
+can be added later without changing the PSO core.
+
 ## 1. Repository Layout
 
 ```text
@@ -69,7 +74,7 @@ Recommended Python version: `3.10+`
   - `history_v*.csv`
   - `trajectory_v*.npz`
 - 2-D and 3-D visualizations from persisted trajectories
-- Grid search over `(w, c1, c2, n_particles)`
+- Grid search over `(w, c1, c2, n_particles, max_iters)`
 - Applied case study: Economic Load Dispatch (EDL)
 
 ## 4. Objectives
@@ -110,6 +115,7 @@ python3 -m scripts.run_benchmarks --objective sphere ackley rosenbrock rastrigin
 
 ```bash
 python3 -m scripts.run_grid_search
+python3 -m scripts.run_grid_search --objective sphere --dims 2 --grid-max-iters 120 180
 python3 -m scripts.run_grid_search --objective sphere --dims 2 --strategy v4 --metric time_s
 python3 -m scripts.run_grid_search --objective latency_mix --dims 2 --strategy v3 --metric time_s
 ```

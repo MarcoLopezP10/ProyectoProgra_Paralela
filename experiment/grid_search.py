@@ -1,8 +1,10 @@
 """experiment.grid_search
 
-Configurable grid search for PSO hyperparameters up to V2.
+Configurable grid search for PSO hyperparameters across V0-V4.
 
-The search can evaluate V0, V1, or V2 using a selectable optimisation metric:
+The search can evaluate any internal strategy using a selectable optimisation
+metric while exploring the main PSO hyperparameters, including the iteration
+budget used as a stopping criterion:
 - final_fitness
 - auc
 - convergence_iter
@@ -103,6 +105,11 @@ def recommended_profile(objective_name: str, dim: int) -> Dict[str, Any]:
         "c1_values": c1_values,
         "c2_values": c2_values,
         "n_particles_values": n_values,
+        "max_iters_values": sorted({
+            max(60, int(profile["max_iters"] * 0.6)),
+            max(80, int(profile["max_iters"] * 0.8)),
+            int(profile["max_iters"]),
+        }),
     })
     return profile
 
@@ -129,6 +136,7 @@ def _aggregate_seed_rows(
     c1: float,
     c2: float,
     n_particles: int,
+    max_iters: int,
     seeds: List[int],
     rows: List[Dict[str, float]],
     max_workers: Optional[int],
@@ -150,6 +158,7 @@ def _aggregate_seed_rows(
         "c1": float(c1),
         "c2": float(c2),
         "n_particles": int(n_particles),
+        "max_iters": int(max_iters),
         "max_workers": max_workers,
         "batch_size": batch_size,
         "mean_metric": float(np.mean(metric_values)),
@@ -177,6 +186,7 @@ def grid_search(
     c1_values: Optional[List[float]] = None,
     c2_values: Optional[List[float]] = None,
     n_particles_values: Optional[List[int]] = None,
+    max_iters_values: Optional[List[int]] = None,
     seeds: Optional[List[int]] = None,
     max_iters: int = 200,
     tol: float = 1e-8,
@@ -205,17 +215,28 @@ def grid_search(
         c2_values = [1.2, 1.5, 1.8]
     if n_particles_values is None:
         n_particles_values = [50]
+    if max_iters_values is None:
+        max_iters_values = [max_iters]
     if seeds is None:
         seeds = [0, 1, 7, 42, 123]
 
     objective_name = getattr(objective_fn, "__name__", "objective")
-    combos = list(itertools.product(w_values, c1_values, c2_values, n_particles_values))
+    combos = list(
+        itertools.product(
+            w_values,
+            c1_values,
+            c2_values,
+            n_particles_values,
+            max_iters_values,
+        )
+    )
     total = len(combos) * len(seeds)
 
     if verbose:
         print(
             f"  Grid search ({strategy.upper()} / {metric}): {len(combos)} combinations "
-            f"x {len(seeds)} seeds = {total} runs (max_iters={max_iters})"
+            f"x {len(seeds)} seeds = {total} runs "
+            f"(iters={sorted({int(value) for value in max_iters_values})})"
         )
 
     all_results: List[Dict[str, Any]] = []
@@ -223,7 +244,7 @@ def grid_search(
     best_metric = float("inf")
     run_n = 0
 
-    for w, c1, c2, n_part in combos:
+    for w, c1, c2, n_part, combo_max_iters in combos:
         per_seed_rows: List[Dict[str, float]] = []
 
         for seed in seeds:
@@ -249,7 +270,7 @@ def grid_search(
                 w=float(w),
                 c1=float(c1),
                 c2=float(c2),
-                max_iters=max_iters,
+                max_iters=int(combo_max_iters),
                 seed=seed,
                 tol=tol,
                 patience=patience,
@@ -269,7 +290,7 @@ def grid_search(
             if verbose:
                 print(
                     f"    [{run_n}/{total}] {strategy.upper()} w={w:.2f} c1={c1:.2f} "
-                    f"c2={c2:.2f} n={n_part} seed={seed} "
+                    f"c2={c2:.2f} n={n_part} iters={int(combo_max_iters)} seed={seed} "
                     f"-> fit={best_fit:.4e} auc={per_seed_row['auc']:.4e} "
                     f"conv={int(per_seed_row['convergence_iter'])} t={time_s:.4f}s",
                     flush=True,
@@ -284,6 +305,7 @@ def grid_search(
             c1=float(c1),
             c2=float(c2),
             n_particles=int(n_part),
+            max_iters=int(combo_max_iters),
             seeds=list(seeds),
             rows=per_seed_rows,
             max_workers=max_workers,
@@ -298,6 +320,7 @@ def grid_search(
                 "c1": row["c1"],
                 "c2": row["c2"],
                 "n_particles": row["n_particles"],
+                "max_iters": row["max_iters"],
                 "strategy": strategy,
                 "selected_metric": metric,
                 "mean_metric": row["mean_metric"],
@@ -335,7 +358,14 @@ def simple_grid_search(
     if seed not in quick_seeds:
         quick_seeds[-1] = seed
 
-    grid_iters = max(60, int(max_iters * 0.5))
+    if max_iters <= 60:
+        grid_max_iters_values = [int(max_iters)]
+    else:
+        grid_max_iters_values = sorted({
+            max(60, int(max_iters * 0.5)),
+            int(max_iters),
+        })
+    grid_iters = max(grid_max_iters_values)
     best_params, _ = grid_search(
         objective_fn=objective_fn,
         dim=dim,
@@ -344,6 +374,7 @@ def simple_grid_search(
         c1_values=profile["c1_values"],
         c2_values=profile["c2_values"],
         n_particles_values=profile["n_particles_values"],
+        max_iters_values=grid_max_iters_values,
         seeds=quick_seeds,
         max_iters=grid_iters,
         tol=profile["tol"],
@@ -375,6 +406,7 @@ def save_grid_search_csv(
         "c1",
         "c2",
         "n_particles",
+        "max_iters",
         "max_workers",
         "batch_size",
         "mean_metric",

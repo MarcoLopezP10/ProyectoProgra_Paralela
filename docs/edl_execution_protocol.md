@@ -13,6 +13,10 @@ compares three execution strategies:
 - `V1` — threading
 - `V2` — multiprocessing
 
+This is intentional: the EDL protocol is meant to validate the shared PSO core
+on an engineering problem using the three directly relevant execution modes that
+were checked for this objective family.
+
 Available EDL variants:
 
 - `edl_1` — base
@@ -77,6 +81,13 @@ results/edl/<case_name>/<variant>_s<seed>/
   history_v1.csv
   history_v2.csv
 ```
+
+Note:
+
+- the deliverable EDL protocol is defined in terms of `V0`, `V1`, and `V2`
+- if an exploratory run directory contains extra files from local experiments,
+  those files are not part of the checked EDL protocol and can be ignored for
+  the final interpretation
 
 For each case:
 

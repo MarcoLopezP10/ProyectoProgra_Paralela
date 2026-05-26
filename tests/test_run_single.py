@@ -110,3 +110,40 @@ def test_run_one_objective_saves_trajectory_archives(monkeypatch, tmp_path):
     assert (run_dir / "trajectory_v3.npz").exists()
     assert (run_dir / "trajectory_v4.npz").exists()
     assert result["save_trajectories"] is True
+
+
+def test_run_one_objective_adopts_grid_selected_max_iters(monkeypatch, tmp_path):
+    def fake_baseline(**kwargs):
+        raise ModuleNotFoundError("No module named 'pyswarm'")
+
+    def fake_grid_search(**kwargs):
+        return {
+            "w": 0.55,
+            "c1": 1.25,
+            "c2": 1.75,
+            "n_particles": 8,
+            "max_iters": 14,
+        }
+
+    monkeypatch.setattr("experiment.run_single.run_pyswarm_baseline", fake_baseline)
+    monkeypatch.setattr("experiment.run_single.simple_grid_search", fake_grid_search)
+
+    result = run_one_objective(
+        sphere,
+        RunConfig(
+            seed=5,
+            dim=2,
+            bounds=([-5.0], [5.0]),
+            use_grid_search=True,
+            max_iters=20,
+            patience=20,
+            out_dir=str(tmp_path / "results"),
+            plots_dir=str(tmp_path / "plots"),
+            log_dir=str(tmp_path / "logs"),
+            save_files=False,
+            log_every=0,
+        ),
+    )
+
+    assert result["hyperparams"]["max_iters"] == 14
+    assert result["selected_grid_metric"] == "final_fitness"

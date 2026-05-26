@@ -267,7 +267,21 @@ This is exactly what should happen in a fair comparison.
 
 ## 5. Experimental Results and Their Meaning
 
-The explanations below use the final runs obtained on the project.
+The explanations below use representative illustrative runs taken from the
+project to explain *why* each strategy behaves the way it does.
+
+Important scope note:
+
+- these examples are not the authoritative final benchmark protocol used for the
+  report conclusions
+- the controlled final numerical suite is the one documented in
+  `docs/final_report.md`
+- the authoritative aggregate artifacts are stored under
+  `results/benchmark_suites/final_protocol_check/` and
+  `reports/analysis_final_protocol/`
+
+In other words, this document is interpretive and explanatory, while the final
+report is the canonical source for the delivery protocol and aggregate numbers.
 
 ---
 
